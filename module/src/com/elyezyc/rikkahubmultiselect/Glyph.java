@@ -50,10 +50,10 @@ final class Glyph {
                 break;
             }
             case "pin":
-                drawPin(canvas, paint, false);
+                drawThumbtack(canvas, paint, false);
                 break;
             case "unpin":
-                drawPin(canvas, paint, true);
+                drawThumbtack(canvas, paint, true);
                 break;
             case "forward": {
                 canvas.drawLine(5f, 12f, 18f, 12f, paint);
@@ -136,12 +136,18 @@ final class Glyph {
         canvas.restore();
     }
 
-    private static void drawPin(Canvas canvas, Paint paint, boolean struck) {
-        canvas.drawCircle(12f, 8f, 4f, paint);
-        canvas.drawLine(12f, 12f, 12f, 19f, paint);
-        canvas.drawLine(8.6f, 8f, 15.4f, 8f, paint);
+    /** 大头钉：宽帽 + 颈部 + 针，和宿主那套 Pin 图标形状接近。 */
+    private static void drawThumbtack(Canvas canvas, Paint paint, boolean struck) {
+        canvas.drawRoundRect(new android.graphics.RectF(6.5f, 4f, 17.5f, 8.2f), 1.6f, 1.6f, paint);
+        Path body = new Path();
+        body.moveTo(10f, 8.2f);
+        body.lineTo(10f, 11.6f);
+        body.lineTo(14f, 11.6f);
+        body.lineTo(14f, 8.2f);
+        canvas.drawPath(body, paint);
+        canvas.drawLine(12f, 11.6f, 12f, 19.5f, paint);
         if (struck) {
-            canvas.drawLine(5.5f, 18.5f, 18.5f, 5.5f, paint);
+            canvas.drawLine(5f, 19f, 19f, 5f, paint);
         }
     }
 }

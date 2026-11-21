@@ -19,6 +19,7 @@ PACKAGE = "com.elyezyc.rikkahubmultiselect"
 ENTRY = PACKAGE + ".HookEntry"
 EXPECTED_CLASSES = [
     "HookEntry", "Host", "Suspend", "Palette", "Selection", "SelectionBar",
+    "M3Dialog", "Glyph",
     "Conversations", "SettingsApi", "Actions", "Copy", "Uuids", "Sql", "T", "Reflect",
     "XLog", "ToastHelper", "Ui", "MainActivity",
 ]

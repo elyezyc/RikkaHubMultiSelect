@@ -314,15 +314,12 @@ final class SelectionBar {
             for (int i = 0; i < names.length; i++) {
                 names[i] = assistants.get(i).name;
             }
-            activity.runOnUiThread(() -> new android.app.AlertDialog.Builder(activity)
-                    .setTitle(T.s("移动到哪个助手", "Move to assistant"))
-                    .setItems(names, (dialog, which) -> {
+            activity.runOnUiThread(() -> M3Dialog.choose(activity,
+                    T.s("移动到哪个助手", "Move to assistant"), names, which -> {
                         final String target = assistants.get(which).id;
                         run("移动对话", ids -> T.f("已移动 %d 个对话", "Moved %d chats",
                                 Actions.moveToAssistant(ids, target)));
-                    })
-                    .setNegativeButton(T.s("取消", "Cancel"), null)
-                    .show());
+                    }));
         });
     }
 
@@ -364,15 +361,12 @@ final class SelectionBar {
             for (int i = 0; i < folders.size(); i++) {
                 names[i + 1] = folders.get(i).name;
             }
-            activity.runOnUiThread(() -> new android.app.AlertDialog.Builder(activity)
-                    .setTitle(T.s("移到哪个文件夹", "Move to folder"))
-                    .setItems(names, (dialog, which) -> {
+            activity.runOnUiThread(() -> M3Dialog.choose(activity,
+                    T.s("移到哪个文件夹", "Move to folder"), names, which -> {
                         final String folderId = which == 0 ? "" : folders.get(which - 1).id;
                         run("移动到文件夹", ids -> T.f("已移动 %d 个对话", "Moved %d chats",
                                 Actions.moveToFolder(ids, folderId)));
-                    })
-                    .setNegativeButton(T.s("取消", "Cancel"), null)
-                    .show());
+                    }));
         });
     }
 
@@ -390,16 +384,13 @@ final class SelectionBar {
 
     private static void confirmDeleteConversations() {
         final int count = Selection.size();
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle(T.s("删除对话", "Delete chats"))
-                .setMessage(T.f("将删除 %d 个对话，附件和搜索索引会一起清理，此操作不可撤销。",
+        M3Dialog.confirm(activity, T.s("删除对话", "Delete chats"),
+                T.f("将删除 %d 个对话，附件和搜索索引会一起清理，此操作不可撤销。",
                         "Delete %d chats? Attachments and the search index are cleaned up too. "
-                                + "This cannot be undone.", count))
-                .setNegativeButton(T.s("取消", "Cancel"), null)
-                .setPositiveButton(T.s("删除", "Delete"), (dialog, which) ->
-                        run("删除对话", ids -> T.f("已删除 %d 个对话", "Deleted %d chats",
-                                Actions.deleteConversations(ids))))
-                .show();
+                                + "This cannot be undone.", count),
+                T.s("删除", "Delete"), true,
+                () -> run("删除对话", ids -> T.f("已删除 %d 个对话", "Deleted %d chats",
+                        Actions.deleteConversations(ids))));
     }
 
     private static void confirmDeleteProviders() {
@@ -420,18 +411,15 @@ final class SelectionBar {
             return;
         }
         final int deletable = Selection.size() - builtIn;
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle(T.s("删除提供商", "Delete providers"))
-                .setMessage(builtIn > 0
+        M3Dialog.confirm(activity, T.s("删除提供商", "Delete providers"),
+                builtIn > 0
                         ? T.f("将删除 %d 个提供商；另有 %d 个内置提供商会跳过。",
                         "Delete %d providers? %d built-in ones are skipped.", deletable, builtIn)
                         : T.f("将删除 %d 个提供商，此操作不可撤销。",
-                        "Delete %d providers? This cannot be undone.", deletable))
-                .setNegativeButton(T.s("取消", "Cancel"), null)
-                .setPositiveButton(T.s("删除", "Delete"), (dialog, which) ->
-                        run("删除提供商", ids -> T.f("已删除 %d 个提供商", "Deleted %d providers",
-                                Actions.deleteProviders(ids))))
-                .show();
+                        "Delete %d providers? This cannot be undone.", deletable),
+                T.s("删除", "Delete"), true,
+                () -> run("删除提供商", ids -> T.f("已删除 %d 个提供商", "Deleted %d providers",
+                        Actions.deleteProviders(ids))));
     }
 
     private static void confirmDeleteAssistants() {
@@ -444,18 +432,15 @@ final class SelectionBar {
             XLog.e("读取助手失败", t);
         }
         final int count = Selection.size();
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle(T.s("删除助手", "Delete assistants"))
-                .setMessage(T.f("将删除 %d 个助手，它们名下的对话也会一起删除，此操作不可撤销。",
+        M3Dialog.confirm(activity, T.s("删除助手", "Delete assistants"),
+                T.f("将删除 %d 个助手，它们名下的对话也会一起删除，此操作不可撤销。",
                         "Delete %d assistants? Their chats are deleted as well. "
-                                + "This cannot be undone.", count))
-                .setNegativeButton(T.s("取消", "Cancel"), null)
-                .setPositiveButton(T.s("删除", "Delete"), (dialog, which) ->
-                        run("删除助手", ids -> {
-                            int[] result = Actions.deleteAssistants(ids);
-                            return T.f("已删除 %d 个助手，连带清理 %d 个对话",
-                                    "Deleted %d assistants and %d chats", result[0], result[1]);
-                        }))
-                .show();
+                                + "This cannot be undone.", count),
+                T.s("删除", "Delete"), true,
+                () -> run("删除助手", ids -> {
+                    int[] result = Actions.deleteAssistants(ids);
+                    return T.f("已删除 %d 个助手，连带清理 %d 个对话",
+                            "Deleted %d assistants and %d chats", result[0], result[1]);
+                }));
     }
 }
