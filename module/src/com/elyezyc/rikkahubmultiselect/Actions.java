@@ -6,6 +6,10 @@
  */
 package com.elyezyc.rikkahubmultiselect;
 
+import android.os.Handler;
+import android.os.Looper;
+
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,6 +30,51 @@ final class Actions {
 
     static int moveToAssistant(List<String> ids, String assistantId) throws Throwable {
         return Conversations.moveToAssistant(ids, assistantId);
+    }
+
+    static int moveToFolder(List<String> ids, String folderId) throws Throwable {
+        return Conversations.moveToFolder(ids, folderId);
+    }
+
+    static int cloneAssistants(List<String> ids) throws Throwable {
+        return SettingsApi.cloneAssistants(ids);
+    }
+
+    /** 重新生成标题交给宿主自己的回调做（每个会话一次），这里只负责把选中的都点一遍。 */
+    static int regenerateTitles(List<String> ids) {
+        final Method invoke = invokeMethod("kotlin.jvm.functions.Function1", Object.class);
+        int count = 0;
+        for (String id : ids) {
+            Object[] row = Selection.row(id);
+            if (row == null || row[0] == null || row[2] == null || invoke == null) {
+                continue;
+            }
+            final Object conversation = row[0];
+            final Object callback = row[2];
+            new Handler(Looper.getMainLooper()).post(() -> {
+                try {
+                    invoke.invoke(callback, conversation);
+                } catch (Throwable t) {
+                    XLog.e("重新生成标题失败", t);
+                }
+            });
+            count++;
+        }
+        return count;
+    }
+
+    private static Method invokeMethod(String className, Class<?>... types) {
+        Class<?> type = Host.loader() == null ? null : Reflect.load(Host.loader(), className);
+        if (type == null) {
+            return null;
+        }
+        try {
+            Method method = type.getMethod("invoke", types);
+            method.setAccessible(true);
+            return method;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     static int deleteConversations(List<String> ids) throws Throwable {

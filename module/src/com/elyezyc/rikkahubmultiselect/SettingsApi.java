@@ -229,6 +229,34 @@ final class SettingsApi {
         return removed[0];
     }
 
+    /** 克隆助手：和宿主自己复制助手一样，复制一份改个名字。 */
+    static int cloneAssistants(final List<String> ids) throws Throwable {
+        final int[] cloned = {0};
+        update(new Host.Transform() {
+            @Override
+            public Object apply(Object settings) throws Throwable {
+                List<Object> assistants = assistants(settings);
+                List<Object> out = new ArrayList<>(assistants);
+                for (Object assistant : assistants) {
+                    if (!ids.contains(assistantId(assistant))) {
+                        continue;
+                    }
+                    Object copy = Copy.with(assistant, "id", Uuids.random());
+                    Object name = Reflect.property(assistant, "name");
+                    String text = name == null ? "" : name.toString();
+                    copy = Copy.with(copy, "name", text + " (Clone)");
+                    out.add(copy);
+                    cloned[0]++;
+                }
+                if (cloned[0] == 0) {
+                    return settings;
+                }
+                return Copy.with(settings, "assistants", out);
+            }
+        });
+        return cloned[0];
+    }
+
     /** 把当前助手切换成指定 id。 */
     static void selectAssistant(final String id) throws Throwable {
         final Object target = findAssistant(id);

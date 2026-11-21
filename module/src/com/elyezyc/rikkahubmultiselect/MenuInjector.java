@@ -18,54 +18,46 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 
 /**
- * 把「多选」塞进 RikkaHub 自己的菜单里。
+ * 菜单里的「多选」，以及选中状态怎么落到宿主自己的列表上。
  *
- * <p>RikkaHub 的菜单是 Compose 的 {@code DropdownMenu}。R8 之后真实调用链是这样的：
- * 列表项 composable（{@code ChatListKt.ConversationItem} / {@code SettingProviderPageKt.ProviderItem} /
- * {@code AssistantPageKt.AssistantItem}，都还在）里构造点击修饰符，点开菜单后由
- * <b>{@code androidx.compose.material3.CardKt.DropdownMenuItem}</b>（经典版，text 是 Function2）
- * 逐项画菜单项——{@code MenuKt} 里那个 expressive 重载应用菜单根本不用。
+ * <p>应用菜单实际调的是 {@code CardKt.DropdownMenuItem}（text 为 Function2 的经典重载），
+ * 这里在那个函数上挂钩，往菜单最前面插一项「多选」。菜单的来源靠三条线索认：
+ * 列表项 composable 组合时记下的类型、点击修饰符被点开时记下的目标、以及当前导航页。
  *
- * <p>所以这里做两件事：
- * <ol>
- *   <li>在列表项组合时把「这是哪个列表的项」放进 ThreadLocal，再包一层点击回调：
- *       长按 / 点三点时记下目标，菜单项一组合就把「多选」插到最前面。</li>
- *   <li>「多选」这一项用宿主自己的 {@code DropdownMenuItem} 画，颜色、内边距、文字样式
- *       都沿用同菜单的其它项，看起来和原版一致。</li>
- * </ol>
- *
- * <p>签名在启动时逐项校验，任何一项对不上就整体关掉（退回悬浮按钮），不会在组合过程中炸宿主。
+ * <p>选中动作不另开界面：行 composable 组合时按 {@link Selection} 的状态改参数——
+ * 会话行用宿主自己的 {@code selected} 变色、点击改成切换选中；提供商 / 助手行点击改成切换，
+ * 未选中的行整体压暗一点。
  */
 final class MenuInjector {
 
     static final int NONE = -1;
-    static final int CONVERSATIONS = 0;
-    static final int PROVIDERS = 1;
-    static final int ASSISTANTS = 2;
 
     /** 点开菜单后这么久没画菜单项，就不再认这次点击。 */
     private static final long ARM_TTL_MS = 1500L;
-
-    /** 注入项在组合里的 key（expressive 重载要用 ComposableLambdaImpl）。 */
     private static final int LAMBDA_KEY = 0x5A17E1;
 
     private static Class<?> function0;
+    private static Class<?> function1;
     private static Class<?> function2;
     private static Class<?> lambdaImpl;
     private static Class<?> textKt;
     private static Class<?> menuItemColors;
+    private static Class<?> iconKt;
     private static Method classicItem;
     private static Method expressiveItem;
     private static Method textMethod;
+    private static Method iconMethod;
     private static Method popupMethod;
+    private static Method alphaMethod;
     private static Constructor<?> lambdaCtor;
     private static Constructor<?> colorsCtor;
     private static Object unitInstance;
+    private static Object emptyModifier;
+    private static Object selectIcon;
 
     private static boolean resolved;
     private static boolean broken;
 
-    /** 当前正在组合的列表项类型（由 item composable 的钩子设置）。 */
     private static final ThreadLocal<Integer> ITEM = new ThreadLocal<>();
 
     private static volatile int armedTarget = NONE;
@@ -75,7 +67,6 @@ final class MenuInjector {
     private static volatile Object pendingDismiss;
     private static volatile boolean injectedForPending;
     private static volatile boolean injectedOnce;
-    private static int debugDumps;
 
     private static final ThreadLocal<Boolean> REENTRANT = new ThreadLocal<>();
 
@@ -86,21 +77,19 @@ final class MenuInjector {
         return resolved && !broken;
     }
 
-    static boolean hasInjected() {
-        return injectedOnce;
-    }
-
     // ---------------------------------------------------------------- 安装
 
     static void install(ClassLoader loader) {
         try {
             function0 = Class.forName("kotlin.jvm.functions.Function0", false, loader);
+            function1 = Class.forName("kotlin.jvm.functions.Function1", false, loader);
             function2 = Class.forName("kotlin.jvm.functions.Function2", false, loader);
             lambdaImpl = Class.forName("androidx.compose.runtime.internal.ComposableLambdaImpl",
                     false, loader);
             textKt = Class.forName("androidx.compose.material3.TextKt", false, loader);
             menuItemColors = Class.forName("androidx.compose.material3.MenuItemColors",
                     false, loader);
+            iconKt = Class.forName("androidx.compose.material3.IconKt", false, loader);
             Class<?> unit = Class.forName("kotlin.Unit", false, loader);
 
             unitInstance = Reflect.get(Reflect.field(unit, "INSTANCE"), null);
@@ -112,20 +101,20 @@ final class MenuInjector {
             colorsCtor.setAccessible(true);
 
             textMethod = findTextMethod();
+            iconMethod = findIconMethod();
             classicItem = findClassicItem();
             expressiveItem = findExpressiveItem();
             popupMethod = findPopupMethod();
+            alphaMethod = findAlphaMethod();
+            emptyModifier = findEmptyModifier();
+            selectIcon = findSelectIcon();
             if (classicItem == null) {
                 throw new NoSuchMethodException("找不到 CardKt#DropdownMenuItem");
             }
 
-            hookItemType("me.rerere.rikkahub.ui.pages.chat.ChatListKt", "ConversationItem",
-                    CONVERSATIONS);
-            hookItemType("me.rerere.rikkahub.ui.pages.setting.SettingProviderPageKt", "ProviderItem",
-                    PROVIDERS);
-            hookItemType("me.rerere.rikkahub.ui.pages.assistant.AssistantPageKt", "AssistantItem",
-                    ASSISTANTS);
-
+            hookConversationItem();
+            hookProviderItem();
+            hookAssistantItem();
             hookClickables();
             if (popupMethod != null) {
                 hookPopup();
@@ -137,10 +126,10 @@ final class MenuInjector {
             }
             resolved = true;
             XLog.i("菜单注入已启用（经典菜单项：" + classicItem.getDeclaringClass().getSimpleName()
-                    + "，expressive：" + (expressiveItem != null) + "）");
+                    + "，expressive：" + (expressiveItem != null) + "，图标：" + (selectIcon != null) + "）");
         } catch (Throwable t) {
             resolved = false;
-            XLog.e("菜单注入不可用，退回悬浮按钮", t);
+            XLog.e("菜单注入不可用（宿主可能改版了）", t);
         }
     }
 
@@ -152,8 +141,7 @@ final class MenuInjector {
             Class<?>[] types = method.getParameterTypes();
             if (types.length == 20
                     && types[0] == String.class
-                    && types[16].getName().equals("androidx.compose.runtime.GapComposer")
-                    && types[17] == int.class && types[18] == int.class && types[19] == int.class) {
+                    && types[16].getName().equals("androidx.compose.runtime.GapComposer")) {
                 method.setAccessible(true);
                 return method;
             }
@@ -161,7 +149,26 @@ final class MenuInjector {
         throw new NoSuchMethodException("TextKt#Text-");
     }
 
-    /** 应用菜单真正用的那个：text 在前、onClick 在后、没有 Shape / Arrangement。 */
+    private static Method findIconMethod() {
+        try {
+            for (Method method : iconKt.getDeclaredMethods()) {
+                if (!method.getName().startsWith("Icon-")) {
+                    continue;
+                }
+                Class<?>[] types = method.getParameterTypes();
+                if (types.length == 7
+                        && types[0].getName().equals("androidx.compose.ui.graphics.vector.ImageVector")
+                        && types[4].getName().equals("androidx.compose.runtime.GapComposer")) {
+                    method.setAccessible(true);
+                    return method;
+                }
+            }
+        } catch (Throwable t) {
+            XLog.e("找 Icon 失败", t);
+        }
+        return null;
+    }
+
     private static Method findClassicItem() {
         for (String className : new String[]{
                 "androidx.compose.material3.CardKt",
@@ -178,7 +185,6 @@ final class MenuInjector {
                 if (types.length == 11
                         && types[0] == function2
                         && types[1] == function0
-                        && types[5] == boolean.class
                         && types[6] == menuItemColors) {
                     method.setAccessible(true);
                     return method;
@@ -188,7 +194,6 @@ final class MenuInjector {
         return null;
     }
 
-    /** Material Expressive 那个重载，个别菜单可能在用。 */
     private static Method findExpressiveItem() {
         Class<?> type = Reflect.load(Host.loader(), "androidx.compose.material3.MenuKt");
         if (type == null) {
@@ -199,10 +204,7 @@ final class MenuInjector {
                 continue;
             }
             Class<?>[] types = method.getParameterTypes();
-            if (types.length == 11
-                    && types[0] == function0
-                    && types[1] == lambdaImpl
-                    && types[4] == function2) {
+            if (types.length == 11 && types[0] == function0 && types[1] == lambdaImpl) {
                 method.setAccessible(true);
                 return method;
             }
@@ -220,10 +222,7 @@ final class MenuInjector {
                 continue;
             }
             Class<?>[] types = method.getParameterTypes();
-            if (types.length == 8
-                    && types[0] == boolean.class
-                    && types[1] == function0
-                    && types[5] == lambdaImpl) {
+            if (types.length == 8 && types[0] == boolean.class && types[1] == function0) {
                 method.setAccessible(true);
                 return method;
             }
@@ -231,30 +230,105 @@ final class MenuInjector {
         return null;
     }
 
-    // ---------------------------------------------------------------- 标记列表项
-
-    private static void hookItemType(String className, String methodName, final int target) {
-        Class<?> type = Reflect.load(Host.loader(), className);
-        if (type == null) {
-            XLog.i("找不到 " + className);
-            return;
-        }
-        Method method = null;
-        for (Method candidate : type.getDeclaredMethods()) {
-            if (candidate.getName().equals(methodName)) {
-                method = candidate;
-                break;
+    /** Modifier.alpha：给未选中的行压暗一点。R8 把文件类合并了，按候选类名找。 */
+    private static Method findAlphaMethod() {
+        String[] classes = {
+                "contrast.Contrast",
+                "androidx.compose.ui.draw.AlphaKt",
+                "androidx.compose.ui.draw.DrawModifierKt",
+        };
+        for (String name : classes) {
+            Class<?> type = Reflect.load(Host.loader(), name);
+            if (type == null) {
+                continue;
+            }
+            for (Method method : type.getDeclaredMethods()) {
+                Class<?>[] types = method.getParameterTypes();
+                if (method.getName().equals("alpha")
+                        && types.length == 2
+                        && types[0].getName().equals("androidx.compose.ui.Modifier")
+                        && types[1] == float.class) {
+                    method.setAccessible(true);
+                    return method;
+                }
             }
         }
+        XLog.i("找不到 Modifier.alpha，选中时不做压暗");
+        return null;
+    }
+
+    private static Object findEmptyModifier() {
+        Class<?> companion = Reflect.load(Host.loader(), "androidx.compose.ui.Modifier$Companion");
+        if (companion == null) {
+            return null;
+        }
+        Object value = Reflect.get(Reflect.field(companion, "$$INSTANCE"), null);
+        if (value == null) {
+            value = Reflect.get(Reflect.field(companion, "INSTANCE"), null);
+        }
+        return value;
+    }
+
+    /** 「多选」的图标：用宿主自带的 HugeIcons 里那个清单勾选图标。 */
+    private static Object findSelectIcon() {
+        String[][] candidates = {
+                {"io.ktor.http.cio.HttpBodyKt", "getCheckList"},
+                {"io.ktor.util.TextKt", "getTick01"},
+                {"me.rerere.ai.core.UsageKt", "getMoreVertical"},
+        };
+        for (String[] candidate : candidates) {
+            Class<?> type = Reflect.load(Host.loader(), candidate[0]);
+            if (type == null) {
+                continue;
+            }
+            for (Method method : type.getDeclaredMethods()) {
+                if (method.getName().equals(candidate[1])
+                        && method.getParameterCount() == 0
+                        && method.getReturnType().getName()
+                        .equals("androidx.compose.ui.graphics.vector.ImageVector")) {
+                    try {
+                        method.setAccessible(true);
+                        return method.invoke(null);
+                    } catch (Throwable t) {
+                        XLog.e("取图标失败：" + candidate[0], t);
+                    }
+                }
+            }
+        }
+        XLog.i("找不到可用的菜单图标");
+        return null;
+    }
+
+    // ---------------------------------------------------------------- 列表项
+
+    private static void hookConversationItem() {
+        Class<?> type = Reflect.load(Host.loader(), "me.rerere.rikkahub.ui.pages.chat.ChatListKt");
+        Method method = type == null ? null : findByName(type, "ConversationItem");
         if (method == null) {
-            XLog.i("找不到 " + className + "#" + methodName);
+            XLog.i("找不到 ConversationItem");
             return;
         }
         try {
             XposedBridge.hookMethod(method, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    ITEM.set(target);
+                    ITEM.set(Selection.CONVERSATIONS);
+                    try {
+                        Selection.observe();
+                        Object conversation = param.args[0];
+                        String id = String.valueOf(Reflect.property(conversation, "id"));
+                        // 0 会话，1 删除，2 重新生成标题，3 置顶，4 移助手，5 移文件夹
+                        Selection.putRow(id, new Object[]{
+                                conversation, param.args[4], param.args[5], param.args[6],
+                                param.args[7], param.args[8]});
+                        if (Selection.active(Selection.CONVERSATIONS)) {
+                            param.args[1] = Selection.contains(id);
+                            param.args[9] = wrapFunction1(param.args[9], id,
+                                    Selection.CONVERSATIONS);
+                        }
+                    } catch (Throwable t) {
+                        XLog.e("处理会话行失败", t);
+                    }
                 }
 
                 @Override
@@ -263,24 +337,111 @@ final class MenuInjector {
                 }
             });
         } catch (Throwable t) {
-            XLog.e("挂钩 " + className + "#" + methodName + " 失败", t);
+            XLog.e("挂钩 ConversationItem 失败", t);
         }
     }
 
-    // ---------------------------------------------------------------- 点击时记下目标
+    private static void hookProviderItem() {
+        Class<?> type = Reflect.load(Host.loader(),
+                "me.rerere.rikkahub.ui.pages.setting.SettingProviderPageKt");
+        Method method = type == null ? null : findByName(type, "ProviderItem");
+        if (method == null) {
+            XLog.i("找不到 ProviderItem");
+            return;
+        }
+        try {
+            XposedBridge.hookMethod(method, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    ITEM.set(Selection.PROVIDERS);
+                    try {
+                        Selection.observe();
+                        if (!Selection.active(Selection.PROVIDERS)) {
+                            return;
+                        }
+                        String id = SettingsApi.providerId(param.args[0]);
+                        param.args[1] = dim(param.args[1], Selection.contains(id));
+                        param.args[2] = wrapFunction0(param.args[2], id, Selection.PROVIDERS);
+                    } catch (Throwable t) {
+                        XLog.e("处理提供商行失败", t);
+                    }
+                }
 
-    private static void hookClickables() {
-        hookConstructor("androidx.compose.foundation.CombinedClickableElement", new int[]{4}, true);
-        hookConstructor("androidx.compose.foundation.ClickableElement", new int[]{6}, false);
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    ITEM.remove();
+                }
+            });
+        } catch (Throwable t) {
+            XLog.e("挂钩 ProviderItem 失败", t);
+        }
     }
 
-    /**
-     * 包一层点击 / 长按回调。
-     *
-     * @param wrapLongClick true 包 onLongClick（会话行），false 包 onClick（三点按钮）
-     */
-    private static void hookConstructor(String className, final int[] indexes,
-                                        final boolean wrapLongClick) {
+    private static void hookAssistantItem() {
+        Class<?> type = Reflect.load(Host.loader(),
+                "me.rerere.rikkahub.ui.pages.assistant.AssistantPageKt");
+        Method method = type == null ? null : findByName(type, "AssistantItem");
+        if (method == null) {
+            XLog.i("找不到 AssistantItem");
+            return;
+        }
+        try {
+            XposedBridge.hookMethod(method, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    ITEM.set(Selection.ASSISTANTS);
+                    try {
+                        Selection.observe();
+                        if (!Selection.active(Selection.ASSISTANTS)) {
+                            return;
+                        }
+                        String id = SettingsApi.assistantId(param.args[0]);
+                        param.args[2] = dim(param.args[2], Selection.contains(id));
+                        param.args[4] = wrapFunction0(param.args[4], id, Selection.ASSISTANTS);
+                    } catch (Throwable t) {
+                        XLog.e("处理助手行失败", t);
+                    }
+                }
+
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    ITEM.remove();
+                }
+            });
+        } catch (Throwable t) {
+            XLog.e("挂钩 AssistantItem 失败", t);
+        }
+    }
+
+    private static Method findByName(Class<?> type, String name) {
+        for (Method method : type.getDeclaredMethods()) {
+            if (method.getName().equals(name)) {
+                method.setAccessible(true);
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private static Object dim(Object modifier, boolean selected) {
+        if (selected || alphaMethod == null) {
+            return modifier;
+        }
+        try {
+            return alphaMethod.invoke(null, modifier, 0.45f);
+        } catch (Throwable t) {
+            return modifier;
+        }
+    }
+
+    // ---------------------------------------------------------------- 点击 -> 选中
+
+    private static void hookClickables() {
+        hookConstructor("androidx.compose.foundation.CombinedClickableElement", 4);
+        hookConstructor("androidx.compose.foundation.ClickableElement", 6);
+    }
+
+    private static void hookConstructor(String className, final int candidateIndex) {
         Class<?> type = Reflect.load(Host.loader(), className);
         if (type == null) {
             XLog.i("找不到 " + className);
@@ -288,29 +449,19 @@ final class MenuInjector {
         }
         for (Constructor<?> constructor : type.getDeclaredConstructors()) {
             Class<?>[] types = constructor.getParameterTypes();
-            int index = -1;
-            for (int candidate : indexes) {
-                if (types.length > candidate && types[candidate] == function0) {
-                    index = candidate;
-                    break;
-                }
-            }
-            if (index < 0) {
+            if (types.length <= candidateIndex || types[candidateIndex] != function0) {
                 continue;
             }
-            final int slot = index;
             constructor.setAccessible(true);
             try {
                 XposedBridge.hookMethod(constructor, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
                         try {
-                            Object original = param.args[slot];
-                            if (!(original instanceof Proxy) || !isOurProxy(original)) {
-                                Integer item = ITEM.get();
-                                if (item != null) {
-                                    param.args[slot] = wrap(original, item);
-                                }
+                            Object original = param.args[candidateIndex];
+                            Integer item = ITEM.get();
+                            if (item != null && original != null) {
+                                param.args[candidateIndex] = wrapArm(original, item);
                             }
                         } catch (Throwable t) {
                             XLog.e("包装点击回调失败", t);
@@ -318,16 +469,12 @@ final class MenuInjector {
                     }
                 });
             } catch (Throwable t) {
-                XLog.e("挂钩 " + className + " 构造器失败", t);
+                XLog.e("挂钩 " + className + " 失败", t);
             }
         }
     }
 
-    private static boolean isOurProxy(Object value) {
-        return value.getClass().getName().contains("$Proxy");
-    }
-
-    private static Object wrap(final Object original, final int target) {
+    private static Object wrapArm(final Object original, final int target) {
         return Proxy.newProxyInstance(function0.getClassLoader(), new Class<?>[]{function0},
                 new java.lang.reflect.InvocationHandler() {
                     @Override
@@ -336,6 +483,26 @@ final class MenuInjector {
                             return fallback(proxy, method, args);
                         }
                         arm(target);
+                        Method call = function0.getMethod("invoke");
+                        call.setAccessible(true);
+                        return call.invoke(original);
+                    }
+                });
+    }
+
+    private static Object wrapFunction0(final Object original, final String id, final int target) {
+        return Proxy.newProxyInstance(function0.getClassLoader(), new Class<?>[]{function0},
+                new java.lang.reflect.InvocationHandler() {
+                    @Override
+                    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                        if (!"invoke".equals(method.getName())) {
+                            return fallback(proxy, method, args);
+                        }
+                        if (Selection.active(target)) {
+                            Selection.toggle(id);
+                            SelectionBar.refresh();
+                            return null;
+                        }
                         if (original == null) {
                             return null;
                         }
@@ -346,61 +513,33 @@ final class MenuInjector {
                 });
     }
 
+    private static Object wrapFunction1(final Object original, final String id, final int target) {
+        return Proxy.newProxyInstance(function1.getClassLoader(), new Class<?>[]{function1},
+                new java.lang.reflect.InvocationHandler() {
+                    @Override
+                    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                        if (!"invoke".equals(method.getName())) {
+                            return fallback(proxy, method, args);
+                        }
+                        if (Selection.active(target)) {
+                            Selection.toggle(id);
+                            SelectionBar.refresh();
+                            return null;
+                        }
+                        if (original == null) {
+                            return null;
+                        }
+                        Method call = function1.getMethod("invoke", Object.class);
+                        call.setAccessible(true);
+                        return call.invoke(original, args == null ? null : args[0]);
+                    }
+                });
+    }
+
     private static void arm(int target) {
         armedTarget = target;
         armedAt = System.currentTimeMillis();
         injectedForPending = false;
-        XLog.i("点开" + tabName(target) + "菜单");
-    }
-
-    /** 菜单内容每组合一次就把「本轮已经插过」清掉，这样重组合时结构不会错位。 */
-    private static void hookContent() {
-        Class<?> type = Reflect.load(Host.loader(), "androidx.compose.material3.MenuKt");
-        if (type == null) {
-            return;
-        }
-        for (Method method : type.getDeclaredMethods()) {
-            if (!method.getName().startsWith("DropdownMenuContent")) {
-                continue;
-            }
-            try {
-                method.setAccessible(true);
-                XposedBridge.hookMethod(method, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        injectedForPending = false;
-                    }
-                });
-            } catch (Throwable t) {
-                XLog.e("挂钩 DropdownMenuContent 失败", t);
-            }
-        }
-    }
-
-    /** 提供商 / 助手页面上的菜单一般就是列表项的菜单，可以按当前页面兜底认一下。 */
-    private static int screenTarget() {
-        String screen = Host.currentScreen();
-        if (screen == null) {
-            return NONE;
-        }
-        if (screen.endsWith("$SettingProvider")) {
-            return PROVIDERS;
-        }
-        if (screen.endsWith("$Assistant")) {
-            return ASSISTANTS;
-        }
-        return NONE;
-    }
-
-    private static String tabName(int target) {
-        switch (target) {
-            case PROVIDERS:
-                return T.s("提供商", "provider");
-            case ASSISTANTS:
-                return T.s("助手", "assistant");
-            default:
-                return T.s("对话", "conversation");
-        }
     }
 
     private static void hookPopup() {
@@ -435,6 +574,43 @@ final class MenuInjector {
         }
     }
 
+    private static void hookContent() {
+        Class<?> type = Reflect.load(Host.loader(), "androidx.compose.material3.MenuKt");
+        if (type == null) {
+            return;
+        }
+        for (Method method : type.getDeclaredMethods()) {
+            if (!method.getName().startsWith("DropdownMenuContent")) {
+                continue;
+            }
+            try {
+                method.setAccessible(true);
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        injectedForPending = false;
+                    }
+                });
+            } catch (Throwable t) {
+                XLog.e("挂钩 DropdownMenuContent 失败", t);
+            }
+        }
+    }
+
+    private static int screenTarget() {
+        String screen = Host.currentScreen();
+        if (screen == null) {
+            return NONE;
+        }
+        if (screen.endsWith("$SettingProvider")) {
+            return Selection.PROVIDERS;
+        }
+        if (screen.endsWith("$Assistant")) {
+            return Selection.ASSISTANTS;
+        }
+        return NONE;
+    }
+
     // ---------------------------------------------------------------- 注入菜单项
 
     private static void hookMenuItem(final Method method, final boolean classic) {
@@ -465,8 +641,6 @@ final class MenuInjector {
         }
         long now = System.currentTimeMillis();
         if (pendingTarget == NONE) {
-            // 没等到 popup 也算：点击后紧接着组合的第一个菜单项就是它；
-            // 提供商 / 助手页还可以直接按当前页面认。
             int target = NONE;
             if (armedTarget != NONE && now - armedAt <= ARM_TTL_MS) {
                 target = armedTarget;
@@ -495,6 +669,7 @@ final class MenuInjector {
         Object[] args = param.args;
         Object text = buildTextLambda(false);
         Object click = buildClickLambda(pendingTarget);
+        Object icon = buildIconLambda();
         Object colors = defaultColors();
         if (colors == null) {
             colors = args[6];
@@ -503,7 +678,7 @@ final class MenuInjector {
                 text,                    // text
                 click,                   // onClick
                 args[2],                 // modifier
-                null,                    // leadingIcon
+                icon,                    // leadingIcon
                 null,                    // trailingIcon
                 Boolean.TRUE,            // enabled
                 colors,                  // colors
@@ -518,10 +693,7 @@ final class MenuInjector {
         } finally {
             REENTRANT.set(null);
         }
-        injectedOnce = true;
-        pendingAt = System.currentTimeMillis();
-        XLog.i("已在" + tabName(pendingTarget) + "菜单里插入多选");
-        FloatingButton.detach(Host.currentActivity());
+        markInjected();
     }
 
     private static void injectExpressive(XC_MethodHook.MethodHookParam param) throws Throwable {
@@ -532,6 +704,7 @@ final class MenuInjector {
         Object[] args = param.args;
         Object text = buildTextLambda(true);
         Object click = buildClickLambda(pendingTarget);
+        Object icon = buildIconLambda();
         Object colors = defaultColors();
         if (colors == null) {
             colors = args[6];
@@ -541,7 +714,7 @@ final class MenuInjector {
                 text,                    // text (ComposableLambdaImpl)
                 args[2],                 // shape
                 args[3],                 // modifier
-                null,                    // leadingIcon
+                icon,                    // leadingIcon
                 Boolean.TRUE,            // enabled
                 colors,                  // colors
                 args[7],                 // arrangement
@@ -555,11 +728,15 @@ final class MenuInjector {
         } finally {
             REENTRANT.set(null);
         }
-        injectedOnce = true;
-        FloatingButton.detach(Host.currentActivity());
+        markInjected();
     }
 
-    /** 菜单项颜色：跟面板用同一套（一般就是 onSurface / onSurfaceVariant）。 */
+    private static void markInjected() {
+        injectedOnce = true;
+        pendingAt = System.currentTimeMillis();
+        XLog.i("已在菜单里插入多选");
+    }
+
     private static Object defaultColors() {
         if (colorsCtor == null) {
             return null;
@@ -584,6 +761,10 @@ final class MenuInjector {
         return ((long) argb & 0xFFFFFFFFL) << 32;
     }
 
+    private static Object unit() {
+        return unitInstance;
+    }
+
     // ---------------------------------------------------------------- lambda
 
     private static Object buildTextLambda(boolean expressive) throws Throwable {
@@ -593,40 +774,59 @@ final class MenuInjector {
                     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
                         if ("invoke".equals(method.getName()) && args != null && args.length >= 2) {
                             drawText(args[0]);
-                            return unitInstance;
+                            return unit();
                         }
                         return fallback(proxy, method, args);
                     }
                 });
-        if (expressive) {
-            return lambdaCtor.newInstance(LAMBDA_KEY, false, block);
+        return expressive ? lambdaCtor.newInstance(LAMBDA_KEY, false, block) : block;
+    }
+
+    private static Object buildIconLambda() {
+        if (iconMethod == null || selectIcon == null || emptyModifier == null) {
+            return null;
         }
-        return block;
+        return Proxy.newProxyInstance(function2.getClassLoader(), new Class<?>[]{function2},
+                new java.lang.reflect.InvocationHandler() {
+                    @Override
+                    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                        if ("invoke".equals(method.getName()) && args != null && args.length >= 2) {
+                            try {
+                                Palette palette = Palette.current();
+                                int tint = palette == null ? 0xFF49454F : palette.onSurfaceVariant;
+                                iconMethod.invoke(null, selectIcon, null, emptyModifier, pack(tint),
+                                        args[0], 0, 0);
+                            } catch (Throwable t) {
+                                XLog.e("画菜单图标失败", t);
+                            }
+                            return unit();
+                        }
+                        return fallback(proxy, method, args);
+                    }
+                });
     }
 
     private static void drawText(Object composer) throws Throwable {
         Object[] args = new Object[20];
         args[0] = T.s("多选", "Select");
-        args[1] = null;           // modifier
-        args[2] = 0L;             // color
-        args[3] = null;           // autoSize
-        args[4] = 0L;             // fontSize
-        args[5] = null;           // fontWeight
-        args[6] = null;           // fontFamily
-        args[7] = 0L;             // letterSpacing
-        args[8] = null;           // textDecoration
-        args[9] = null;           // textAlign
-        args[10] = 0L;            // lineHeight
-        args[11] = 0;             // overflow
-        args[12] = Boolean.FALSE; // softWrap
-        args[13] = 0;             // maxLines
-        args[14] = 0;             // minLines
-        args[15] = null;          // style
+        args[1] = null;
+        args[2] = 0L;
+        args[3] = null;
+        args[4] = 0L;
+        args[5] = null;
+        args[6] = null;
+        args[7] = 0L;
+        args[8] = null;
+        args[9] = null;
+        args[10] = 0L;
+        args[11] = 0;
+        args[12] = Boolean.FALSE;
+        args[13] = 0;
+        args[14] = 0;
+        args[15] = null;
         args[16] = composer;
-        args[17] = 0;             // changed
-        args[18] = 0;             // changed
-        // 除文字外全部取默认值。这里按「每个形参一位」和「每个槽位一位」（宽形参占两位）两种
-        // 约定都能覆盖：低 16 位全是 1，超出部分对只有 16 个形参的函数无意义。
+        args[17] = 0;
+        args[18] = 0;
         args[19] = 0xFFFFE;
         textMethod.invoke(null, args);
     }
@@ -660,9 +860,11 @@ final class MenuInjector {
                             @Override
                             public void run() {
                                 try {
-                                    MultiSelectDialog.show(activity, target);
+                                    SelectionBar.hideIfIdle();
+                                    Selection.enter(target);
+                                    SelectionBar.show(activity);
                                 } catch (Throwable t) {
-                                    XLog.e("打开多选面板失败", t);
+                                    XLog.e("进入多选失败", t);
                                 }
                             }
                         });

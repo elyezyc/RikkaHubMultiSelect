@@ -134,6 +134,21 @@ REQUIRED = [
      "method", "<init>", ("Lkotlin/jvm/functions/Function0;", "Lkotlin/jvm/functions/Function0;")),
     ("ClickableElement#<init>", "Landroidx/compose/foundation/ClickableElement;", "method",
      "<init>", ("Lkotlin/jvm/functions/Function0;",)),
+    ("Updater#mutableStateOf$default", "Landroidx/compose/runtime/Updater;", "method",
+     "mutableStateOf$default", ("Landroidx/compose/runtime/ParcelableSnapshotMutableState;",)),
+    ("State#getValue", "Landroidx/compose/runtime/State;", "method", "getValue",
+     ("()Ljava/lang/Object;",)),
+    ("MutableState#setValue", "Landroidx/compose/runtime/MutableState;", "method", "setValue",
+     ("(Ljava/lang/Object;)V",)),
+    ("Modifier.Companion.$$INSTANCE", "Landroidx/compose/ui/Modifier$Companion;", "field",
+     "$$INSTANCE", ("Landroidx/compose/ui/Modifier$Companion;",)),
+    ("Modifier.alpha", "Lcontrast/Contrast;", "method", "alpha",
+     ("Landroidx/compose/ui/Modifier;", "F)Landroidx/compose/ui/Modifier;")),
+    ("HugeIcons.getCheckList", "Lio/ktor/http/cio/HttpBodyKt;", "method", "getCheckList",
+     ("Landroidx/compose/ui/graphics/vector/ImageVector;",)),
+    ("HugeIcons.getTick01", "Lio/ktor/util/TextKt;", "method", "getTick01",
+     ("Landroidx/compose/ui/graphics/vector/ImageVector;",)),
+    ("kotlin.jvm.functions.Function1", "Lkotlin/jvm/functions/Function1;", "class", None, None),
     ("MenuKt#DropdownMenuPopup", "Landroidx/compose/material3/MenuKt;", "method",
      "DropdownMenuPopup", ("ComposableLambdaImpl;", "Lkotlin/jvm/functions/Function0;")),
     ("MenuKt#DropdownMenuItem", "Landroidx/compose/material3/MenuKt;", "method",
@@ -204,7 +219,8 @@ REQUIRED = [
 
 # 名字带混淆后缀的成员：按前缀 + 形参个数核对
 PREFIX_REQUIRED = [
-    ("TextKt#Text-(String)", "Landroidx/compose/material3/TextKt;", 20),
+    ("TextKt#Text-(String)", "Landroidx/compose/material3/TextKt;", 20, "Text-"),
+    ("IconKt#Icon-(ImageVector)", "Landroidx/compose/material3/IconKt;", 7, "Icon-"),
 ]
 
 
@@ -276,13 +292,12 @@ def main():
         if not ok:
             failures.append(label)
 
-    for label, desc, param_count in PREFIX_REQUIRED:
+    for label, desc, param_count, prefix in PREFIX_REQUIRED:
         members = classes.get(desc)
         ok = False
         if members is not None:
             for member_name, member_type in members["method"]:
-                if member_name.startswith("Text-") and member_type.startswith("(Ljava/lang/String;") \
-                        and member_type.count(";") + member_type.count("[") >= 0 \
+                if member_name.startswith(prefix) \
                         and len(_split_params(member_type)) == param_count:
                     ok = True
                     break

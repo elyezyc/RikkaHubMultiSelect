@@ -76,6 +76,7 @@ final class Host {
         function0Class = Reflect.load(classLoader, "kotlin.jvm.functions.Function0");
         function1Class = Reflect.load(classLoader, "kotlin.jvm.functions.Function1");
         Conversations.init(classLoader);
+        Selection.install(classLoader);
         MenuInjector.install(classLoader);
 
         capture(settingsStoreClass, "SettingsStore", new Sink() {
@@ -305,14 +306,9 @@ final class Host {
                         }
                         Activity activity = (Activity) param.thisObject;
                         currentActivity = new WeakReference<>(activity);
-                        // 菜单注入生效之前先挂一个悬浮按钮兜底，注入成功后它会自己收起来
-                        if (MenuInjector.hasInjected()) {
-                            return;
-                        }
-                        try {
-                            FloatingButton.attach(activity);
-                        } catch (Throwable t) {
-                            XLog.e("挂载多选按钮失败", t);
+                        // Activity 重建（旋转屏幕等）后工具栏会跟着没，重新挂一下
+                        if (Selection.mode() != Selection.NONE) {
+                            SelectionBar.show(activity);
                         }
                     }
                 });
@@ -332,7 +328,7 @@ final class Host {
                             if (currentActivity != null && currentActivity.get() == activity) {
                                 currentActivity = null;
                             }
-                            MultiSelectDialog.dismissFor(activity);
+                            SelectionBar.detach();
                         }
                     }
                 });

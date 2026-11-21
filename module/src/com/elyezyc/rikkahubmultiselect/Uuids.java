@@ -52,6 +52,21 @@ final class Uuids {
         };
     }
 
+    /** 造一个新的随机 Uuid（克隆助手时用）。 */
+    static Object random() throws Throwable {
+        if (constructor == null) {
+            throw new IllegalStateException("Uuid 反射还没初始化");
+        }
+        java.util.Random random = new java.util.Random();
+        long msb = random.nextLong();
+        long lsb = random.nextLong();
+        Object direct = constructor.newInstance(msb, lsb);
+        if (most.getLong(direct) == msb && least.getLong(direct) == lsb) {
+            return direct;
+        }
+        return constructor.newInstance(lsb, msb);
+    }
+
     static Object parse(String text) throws Throwable {
         if (constructor == null) {
             throw new IllegalStateException("Uuid 反射还没初始化");

@@ -18,7 +18,7 @@ AAPT2 = os.path.join(ROOT, "tools/android-sdk/build-tools/36.0.0/aapt2")
 PACKAGE = "com.elyezyc.rikkahubmultiselect"
 ENTRY = PACKAGE + ".HookEntry"
 EXPECTED_CLASSES = [
-    "HookEntry", "Host", "Suspend", "Palette", "MultiSelectDialog", "FloatingButton",
+    "HookEntry", "Host", "Suspend", "Palette", "Selection", "SelectionBar",
     "Conversations", "SettingsApi", "Actions", "Copy", "Uuids", "Sql", "T", "Reflect",
     "XLog", "ToastHelper", "Ui", "MainActivity",
 ]

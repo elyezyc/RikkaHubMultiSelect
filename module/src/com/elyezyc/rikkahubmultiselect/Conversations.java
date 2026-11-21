@@ -130,6 +130,52 @@ final class Conversations {
         return ids.size();
     }
 
+    static final class Folder {
+        final String id;
+        final String name;
+
+        Folder(String id, String name) {
+            this.id = id;
+            this.name = name;
+        }
+    }
+
+    static List<Folder> loadFolders(String assistantId) throws Throwable {
+        List<Folder> folders = new ArrayList<>();
+        Cursor cursor = null;
+        try {
+            cursor = query("SELECT id, name FROM conversation_folder WHERE assistant_id = ? "
+                    + "ORDER BY sort_index", new Object[]{assistantId});
+            int idIndex = cursor.getColumnIndexOrThrow("id");
+            int nameIndex = cursor.getColumnIndexOrThrow("name");
+            while (cursor.moveToNext()) {
+                String name = cursor.getString(nameIndex);
+                folders.add(new Folder(cursor.getString(idIndex),
+                        name == null || name.trim().isEmpty() ? T.s("未命名文件夹", "Untitled") : name));
+            }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return folders;
+    }
+
+    static int moveToFolder(List<String> ids, String folderId) throws Throwable {
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        String sql = "UPDATE conversationentity SET folder_id = ? WHERE "
+                + Sql.inClause("id", ids.size());
+        Object[] args = new Object[ids.size() + 1];
+        args[0] = folderId == null ? "" : folderId;
+        for (int i = 0; i < ids.size(); i++) {
+            args[i + 1] = ids.get(i);
+        }
+        write(sql, args);
+        return ids.size();
+    }
+
     static int moveToAssistant(List<String> ids, String assistantId) throws Throwable {
         if (ids.isEmpty()) {
             return 0;
