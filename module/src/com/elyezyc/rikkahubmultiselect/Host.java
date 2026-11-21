@@ -125,6 +125,30 @@ final class Host {
 
     // ---------------------------------------------------------------- 单例
 
+    /**
+     * 当前导航栈最上面那个页面的类名（RikkaHub 用 navigation3，RouteActivity 里存着 navStack）。
+     * 认不出来就返回 null。
+     */
+    static String currentScreen() {
+        Activity activity = currentActivity();
+        if (activity == null) {
+            return null;
+        }
+        try {
+            Object stack = Reflect.get(Reflect.field(activity.getClass(), "navStack"), activity);
+            if (stack instanceof java.util.List) {
+                java.util.List<?> list = (java.util.List<?>) stack;
+                if (!list.isEmpty()) {
+                    Object top = list.get(list.size() - 1);
+                    return top == null ? null : top.getClass().getName();
+                }
+            }
+        } catch (Throwable ignored) {
+            // 认不出来就当作没有
+        }
+        return null;
+    }
+
     /** 当前前台的主界面 Activity（菜单项点击时用）。 */
     static Activity currentActivity() {
         WeakReference<Activity> reference = currentActivity;

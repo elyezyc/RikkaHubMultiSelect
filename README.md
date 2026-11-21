@@ -62,10 +62,10 @@ RikkaHub 自己的列表都是单条操作：删会话要一条条长按，改�
   和设置页里点按钮是同一条路径；新的 `Settings` 用编译器生成的 `copy$default` 造，不直接改宿主手里那份对象。
 - 宿主的挂起函数用模块自带的续体桥同步调用。R8 会把不少挂起函数的续体形参从
   `Continuation` 收窄成 `ContinuationImpl`，所以交给它的是一个真正的 `ContinuationImpl` 子类。
-- 菜单项：R8 把 `ItemActionMenu` 这类封装全内联掉了，没有能改动作列表的入口。模块挂的是
-  `DropdownMenuPopup`（菜单打开时调用、调用栈还在打开菜单的 composable 里），从栈上认出
-  `ChatListKt.ConversationItem` / `SettingProviderPageKt.ProviderItem` / `AssistantPageKt.AssistantItem`，
-  然后用宿主自己的 `DropdownMenuItem` 多加一项。
+- 菜单项：R8 把 `ItemActionMenu` 这类封装全内联掉了，没有能改动作列表的入口。应用菜单实际走的是
+  `CardKt.DropdownMenuItem`（text 为 `Function2` 的经典重载）。模块在列表项组合时记下「这是哪个列表」，
+  包一层点击 / 长按回调，菜单第一项开始组合时用宿主自己的 `DropdownMenuItem` 多加一项「多选」，
+  内边距、颜色、文字样式都沿用同一份菜单。
 - 面板配色从宿主的 `PresetTheme` 里读已经生成好的 `ColorScheme`，取不到时依次退到
   系统动态取色色阶、Material 3 基线配色。
 
@@ -80,7 +80,7 @@ RikkaHub 自己的列表都是单条操作：删会话要一条条长按，改�
 - 菜单注入依赖 Compose 内部实现（`DropdownMenuPopup` / `DropdownMenuItem` / `ComposableLambdaImpl`）。
   签名在启动时会逐项校验，对不上就整体关掉、退回悬浮按钮，不会把宿主带崩。宿主大改版后可能要重新适配。
 - 删除操作不可撤销。
-- 这个版本没在真机上跑过。`./verify.sh` 里的三项校验（73 个锚点对照宿主发布包、
+- 这个版本没在真机上跑过。`./verify.sh` 里的三项校验（77 个锚点对照宿主发布包、
   21 项 JVM 单测、产物检查）都过了，但设备上的实际表现——比如 ART 对续体恢复、
   反射改 `final` 字段的处理、Compose 里注入菜单项——还要装上才能确认。
   用之前先备份一次 RikkaHub 数据比较稳妥。

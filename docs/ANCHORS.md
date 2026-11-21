@@ -54,10 +54,15 @@
 | 挂钩点 | 宿主源码 | 用途 |
 | --- | --- | --- |
 | `MenuKt.DropdownMenuPopup` | androidx.compose.material3 | 菜单打开时调用一次；从调用栈认出这是哪个列表的菜单，同时记下 `onDismissRequest` |
-| `MenuKt.DropdownMenuItem` | 同上 | 菜单第一项开始组合时，先用宿主自己的这个函数多画一项「多选」（形状、颜色、内边距、文字样式都复用那一项的） |
+| `CardKt.DropdownMenuItem` | 同上 | **应用菜单真正用的重载**（text 是 Function2）：菜单第一项开始组合时，用宿主自己的这个函数多画一项「多选」，内边距、文字样式都复用那一项的 |
+| `MenuKt.DropdownMenuItem` | 同上 | expressive 重载，少数菜单在用，同样注入 |
+| `MenuKt.DropdownMenuContent` | 同上 | 菜单内容每组合一次就重置「本轮已插入」标记，重组合时结构不会错位 |
+| `MenuItemColors#<init>` | 同上 | 给注入项配一套和其它项一致的文字颜色 |
 | `TextKt#Text-(String…)` | 同上 | 在注入的项里画「多选」两个字；名字带混淆后缀，按 `Text-` 前缀 + 20 个形参找 |
 | `ComposableLambdaImpl#<init>(int, boolean, Object)` | androidx.compose.runtime | 文字要包成 Compose 的 lambda |
 | `kotlin.Unit.INSTANCE` | kotlin-stdlib | 上面的 lambda 返回值 |
+| `CombinedClickableElement#<init>` | androidx.compose.foundation | 包一层长按回调：在会话行上长按时记下「这次是对话菜单」 |
+| `ClickableElement#<init>` | 同上 | 包一层点击回调：点提供商 / 助手的三点时记下目标 |
 | `ChatListKt.ConversationItem` | [`ChatDrawer.kt`](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ChatDrawer.kt) / [`ConversationList.kt`](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ConversationList.kt) | 长按菜单的来源（R8 把这两个文件合进了 `ChatListKt`） |
 | `SettingProviderPageKt.ProviderItem` | [`SettingProviderPage.kt`](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingProviderPage.kt) | 提供商三点菜单的来源 |
 | `AssistantPageKt.AssistantItem` | [`AssistantPage.kt`](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/ui/pages/assistant/AssistantPage.kt) | 助手三点菜单的来源 |

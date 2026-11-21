@@ -67,6 +67,9 @@ final class Palette {
     private static final int DARK_ERROR_CONTAINER = 0xFF8C1D18;
     private static final int DARK_ON_ERROR_CONTAINER = 0xFFF9DEDC;
 
+    /** 最近一次解析出来的配色，菜单注入画「多选」时用。 */
+    private static volatile Palette lastResolved;
+
     final boolean dark;
     final float fontScale;
 
@@ -112,6 +115,11 @@ final class Palette {
 
     float sp(float size) {
         return size * fontScale;
+    }
+
+    /** 最近一次解析出来的配色；还没解析过时返回 null。 */
+    static Palette current() {
+        return lastResolved;
     }
 
     static Palette resolve(Activity activity) {
@@ -185,10 +193,12 @@ final class Palette {
         if (dark && amoled) {
             surface = 0xFF000000;
         }
-        return new Palette(dark, fontScale, surface, surfaceHigh, onSurface, onSurfaceVariant,
-                outlineVariant, primary, onPrimary, primaryContainer, onPrimaryContainer,
-                secondaryContainer, onSecondaryContainer, error, onError, errorContainer,
-                onErrorContainer);
+        Palette palette = new Palette(dark, fontScale, surface, surfaceHigh, onSurface,
+                onSurfaceVariant, outlineVariant, primary, onPrimary, primaryContainer,
+                onPrimaryContainer, secondaryContainer, onSecondaryContainer, error, onError,
+                errorContainer, onErrorContainer);
+        lastResolved = palette;
+        return palette;
     }
 
     /** 宿主当前主题预生成好的 ColorScheme；自定义主题按种子色现算一份。 */
@@ -307,10 +317,12 @@ final class Palette {
         if (dark && amoled) {
             surface = 0xFF000000;
         }
-        return new Palette(dark, fontScale, surface, surfaceHigh, onSurface, onSurfaceVariant,
-                outlineVariant, primary, onPrimary, primaryContainer, onPrimaryContainer,
-                secondaryContainer, onSecondaryContainer, error, onError, errorContainer,
-                onErrorContainer);
+        Palette palette = new Palette(dark, fontScale, surface, surfaceHigh, onSurface,
+                onSurfaceVariant, outlineVariant, primary, onPrimary, primaryContainer,
+                onPrimaryContainer, secondaryContainer, onSecondaryContainer, error, onError,
+                errorContainer, onErrorContainer);
+        lastResolved = palette;
+        return palette;
     }
 
     /** 系统色阶是按名字取的：这些颜色没有进 android.R，不同 SDK 上有没有也得试了才知道。 */
