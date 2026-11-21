@@ -32,6 +32,43 @@ final class Selection {
     /** 行组合时收集到的会话对象和宿主回调，重生成标题要用。 */
     private static final Map<String, Object[]> ROW_DATA = new HashMap<>();
 
+    private static final android.os.Handler MAIN = new android.os.Handler(
+            android.os.Looper.getMainLooper());
+
+    /** 多选期间盯着当前页面，离开对应的列表就自动收起。 */
+    private static final Runnable WATCHER = new Runnable() {
+        @Override
+        public void run() {
+            if (mode == NONE) {
+                return;
+            }
+            if (!screenMatches()) {
+                XLog.i("页面已切换，退出多选");
+                exit();
+                SelectionBar.detach();
+                return;
+            }
+            MAIN.postDelayed(this, 600L);
+        }
+    };
+
+    private static boolean screenMatches() {
+        String screen = Host.currentScreen();
+        if (screen == null) {
+            return true;
+        }
+        switch (mode) {
+            case CONVERSATIONS:
+                return screen.endsWith("$Chat");
+            case PROVIDERS:
+                return screen.endsWith("$SettingProvider");
+            case ASSISTANTS:
+                return screen.endsWith("$Assistant");
+            default:
+                return false;
+        }
+    }
+
     private static volatile int mode = NONE;
     private static Object tick;
     private static Method tickGet;
@@ -106,12 +143,15 @@ final class Selection {
         SELECTED.clear();
         ROW_DATA.clear();
         bump();
+        MAIN.removeCallbacks(WATCHER);
+        MAIN.postDelayed(WATCHER, 600L);
     }
 
     static void exit() {
         mode = NONE;
         SELECTED.clear();
         ROW_DATA.clear();
+        MAIN.removeCallbacks(WATCHER);
         bump();
     }
 

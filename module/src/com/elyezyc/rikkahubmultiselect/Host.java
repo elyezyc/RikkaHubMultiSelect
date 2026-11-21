@@ -317,6 +317,24 @@ final class Host {
             }
         }
 
+        Method onPause = Reflect.methodExact(activityClass, "onPause");
+        if (onPause != null) {
+            try {
+                XposedBridge.hookMethod(onPause, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        // 切到后台 / 打开别的界面时收起多选
+                        if (Selection.mode() != Selection.NONE) {
+                            Selection.exit();
+                            SelectionBar.detach();
+                        }
+                    }
+                });
+            } catch (Throwable t) {
+                XLog.e("挂钩 RouteActivity#onPause 失败", t);
+            }
+        }
+
         Method onDestroy = Reflect.methodExact(activityClass, "onDestroy");
         if (onDestroy != null) {
             try {

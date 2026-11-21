@@ -54,6 +54,7 @@ final class MenuInjector {
     private static Object unitInstance;
     private static Object emptyModifier;
     private static Object selectIcon;
+    private static boolean iconAvailable;
 
     private static boolean resolved;
     private static boolean classicBroken;
@@ -138,6 +139,7 @@ final class MenuInjector {
             if (expressiveItem != null) {
                 hookMenuItem(expressiveItem, false);
             }
+            iconAvailable = iconMethod != null && selectIcon != null && emptyModifier != null;
             resolved = true;
             XLog.i("菜单注入已启用（经典菜单项：" + classicItem.getDeclaringClass().getSimpleName()
                     + "，expressive：" + (expressiveItem != null) + "，图标：" + (selectIcon != null) + "）");
@@ -302,7 +304,11 @@ final class MenuInjector {
                         .equals("androidx.compose.ui.graphics.vector.ImageVector")) {
                     try {
                         method.setAccessible(true);
-                        return method.invoke(null);
+                        Object value = method.invoke(null);
+                        if (value != null) {
+                            XLog.i("菜单图标取自 " + candidate[0] + "#" + candidate[1]);
+                            return value;
+                        }
                     } catch (Throwable t) {
                         XLog.e("取图标失败：" + candidate[0], t);
                     }
@@ -611,7 +617,8 @@ final class MenuInjector {
             return;
         }
         for (Method method : type.getDeclaredMethods()) {
-            if (!method.getName().startsWith("DropdownMenuContent")) {
+            String name = method.getName();
+            if (!name.startsWith("DropdownMenuContent") && !name.startsWith("DropdownMenuPopup")) {
                 continue;
             }
             try {
@@ -621,9 +628,13 @@ final class MenuInjector {
                     protected void beforeHookedMethod(MethodHookParam param) {
                         injectedForPending = false;
                         // 菜单内容组合时把 onDismissRequest 记住，点「多选」以后用它关菜单
-                        if (param.args != null && param.args.length > 2
-                                && function0.isInstance(param.args[2])) {
-                            pendingDismiss = param.args[2];
+                        if (param.args != null) {
+                            for (int i = 1; i < param.args.length; i++) {
+                                if (function0.isInstance(param.args[i])) {
+                                    pendingDismiss = param.args[i];
+                                    break;
+                                }
+                            }
                         }
                     }
                 });
@@ -717,9 +728,10 @@ final class MenuInjector {
         }
         injectedForPending = true;
         Object[] args = param.args;
-        Object text = buildTextLambda(false);
+        final boolean[] iconDrawn = new boolean[1];
+        Object text = buildTextLambda(false, iconDrawn);
         Object click = buildClickLambda(pendingTarget);
-        Object icon = buildIconLambda();
+        Object icon = buildIconLambda(iconDrawn);
         Object colors = defaultColors();
         if (colors == null) {
             colors = args[6];
@@ -755,9 +767,10 @@ final class MenuInjector {
         }
         injectedForPending = true;
         Object[] args = param.args;
-        Object text = buildTextLambda(true);
+        final boolean[] iconDrawn = new boolean[1];
+        Object text = buildTextLambda(true, iconDrawn);
         Object click = buildClickLambda(pendingTarget);
-        Object icon = buildIconLambda();
+        Object icon = buildIconLambda(iconDrawn);
         Object colors = defaultColors();
         if (colors == null) {
             colors = args[6];
@@ -846,13 +859,14 @@ final class MenuInjector {
 
     // ---------------------------------------------------------------- lambda
 
-    private static Object buildTextLambda(boolean expressive) throws Throwable {
+    private static Object buildTextLambda(boolean expressive, final boolean[] iconDrawn)
+            throws Throwable {
         Object block = Proxy.newProxyInstance(function2.getClassLoader(), new Class<?>[]{function2},
                 new java.lang.reflect.InvocationHandler() {
                     @Override
                     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
                         if ("invoke".equals(method.getName()) && args != null && args.length >= 2) {
-                            drawText(args[0]);
+                            drawText(args[0], iconDrawn);
                             return unit();
                         }
                         return fallback(proxy, method, args);
@@ -861,7 +875,7 @@ final class MenuInjector {
         return expressive ? lambdaCtor.newInstance(LAMBDA_KEY, false, block) : block;
     }
 
-    private static Object buildIconLambda() {
+    private static Object buildIconLambda(final boolean[] iconDrawn) {
         if (iconMethod == null || selectIcon == null || emptyModifier == null) {
             return null;
         }
@@ -875,6 +889,7 @@ final class MenuInjector {
                                 int tint = palette == null ? 0xFF49454F : palette.onSurfaceVariant;
                                 iconMethod.invoke(null, selectIcon, null, emptyModifier, pack(tint),
                                         args[0], 0, 0);
+                                iconDrawn[0] = true;
                             } catch (Throwable t) {
                                 XLog.e("画菜单图标失败", t);
                             }
@@ -885,9 +900,11 @@ final class MenuInjector {
                 });
     }
 
-    private static void drawText(Object composer) throws Throwable {
+    /** 图标真画出来了就不加字符；图标没出来（或者宿主没调 leadingIcon）就用 ✓ 顶上。 */
+    private static void drawText(Object composer, boolean[] iconDrawn) throws Throwable {
         Object[] args = new Object[20];
-        args[0] = T.s("多选", "Select");
+        boolean withGlyph = iconDrawn == null || !iconDrawn[0];
+        args[0] = withGlyph ? T.s("✓ 多选", "✓ Select") : T.s("多选", "Select");
         args[1] = null;
         args[2] = 0L;
         args[3] = null;
@@ -928,14 +945,19 @@ final class MenuInjector {
                             XLog.i("点了多选，但拿不到 Activity");
                             return null;
                         }
+                        boolean closed = false;
                         try {
                             if (dismiss != null) {
                                 Method call = function0.getMethod("invoke");
                                 call.setAccessible(true);
                                 call.invoke(dismiss);
+                                closed = true;
                             }
                         } catch (Throwable t) {
                             XLog.e("关闭宿主菜单失败", t);
+                        }
+                        if (!closed) {
+                            backLater(activity);
                         }
                         new Handler(Looper.getMainLooper()).post(new Runnable() {
                             @Override
@@ -955,6 +977,25 @@ final class MenuInjector {
                         return null;
                     }
                 });
+    }
+
+    /** 拿不到 onDismissRequest 时的兜底：让 Compose 的 Popup 自己走一次返回，把它关掉。 */
+    private static void backLater(final Activity activity) {
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Object dispatcher = activity.getClass()
+                            .getMethod("getOnBackPressedDispatcher").invoke(activity);
+                    if (dispatcher != null) {
+                        dispatcher.getClass().getMethod("onBackPressed").invoke(dispatcher);
+                        XLog.i("已发送返回键关闭菜单");
+                    }
+                } catch (Throwable t) {
+                    XLog.e("关闭菜单（返回键）失败", t);
+                }
+            }
+        }, 120L);
     }
 
     private static Object fallback(Object proxy, Method method, Object[] args) {
