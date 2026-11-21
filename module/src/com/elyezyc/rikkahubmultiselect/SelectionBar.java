@@ -7,8 +7,11 @@
 package com.elyezyc.rikkahubmultiselect;
 
 import android.app.Activity;
+import android.content.Context;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -22,10 +25,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 多选时浮在底部的一条操作栏，和 RikkaHub 自己选消息时那条悬浮工具栏是一个位置、一个形状：
- * 底部居中、大圆角、surfaceContainer 底色、带阴影。
+ * 多选时底部浮出来的操作栏。位置、高度、圆角和 RikkaHub 自己选消息时那条悬浮工具栏一致：
+ * 底部居中、56dp 高、大圆角、带阴影，里面是圆形图标按钮 + 已选数量。
  *
- * <p>选中状态本身发生在宿主列表里（点击行切换），这里只负责显示数量和批量动作。
+ * <p>选中状态发生在宿主列表里（见 {@link Selection}），这里只放批量动作。
  */
 final class SelectionBar {
 
@@ -66,7 +69,6 @@ final class SelectionBar {
     }
 
     private static void build(ViewGroup root) {
-        Palette palette = Palette.resolve(activity);
         if (worker == null) {
             worker = Executors.newSingleThreadExecutor(runnable -> {
                 Thread thread = new Thread(runnable, "RikkaHubMultiSelect");
@@ -74,16 +76,15 @@ final class SelectionBar {
                 return thread;
             });
         }
-
         content = new LinearLayout(activity);
         content.setOrientation(LinearLayout.HORIZONTAL);
         content.setGravity(Gravity.CENTER_VERTICAL);
-        content.setPadding(Ui.dp(activity, 8), Ui.dp(activity, 8),
-                Ui.dp(activity, 8), Ui.dp(activity, 8));
-        content.setBackground(Ui.rounded(activity, palette.surfaceContainerHigh, 28f));
+        content.setMinimumHeight(Ui.dp(activity, 56));
+        content.setPadding(Ui.dp(activity, 6), 0, Ui.dp(activity, 10), 0);
 
         HorizontalScrollView scroller = new HorizontalScrollView(activity);
         scroller.setHorizontalScrollBarEnabled(false);
+        scroller.setClipToPadding(false);
         scroller.setBackgroundColor(Color.TRANSPARENT);
         scroller.addView(content, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -92,7 +93,7 @@ final class SelectionBar {
         wrapper.setTag(TAG);
         wrapper.addView(scroller, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        wrapper.setElevation(Ui.dp(activity, 6));
+        wrapper.setElevation(Ui.dp(activity, 8));
 
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -106,6 +107,17 @@ final class SelectionBar {
         refresh();
     }
 
+    /** 多选工具栏的底：深色 AMOLED 下用纯黑 + 一圈细描边，和宿主的全黑风格对齐。 */
+    private static GradientDrawable background(Palette palette) {
+        boolean amoled = palette.dark && palette.surface == 0xFF000000;
+        GradientDrawable drawable = Ui.rounded(activity,
+                amoled ? 0xFF000000 : palette.surfaceContainerHigh, 28f);
+        if (amoled) {
+            drawable.setStroke(Ui.dp(activity, 1), Ui.alpha(palette.outlineVariant, 0.55f));
+        }
+        return drawable;
+    }
+
     static void refresh() {
         if (bar == null || content == null || activity == null || activity.isFinishing()) {
             return;
@@ -115,87 +127,96 @@ final class SelectionBar {
             return;
         }
         final Palette palette = Palette.resolve(activity);
+        content.setBackground(background(palette));
         content.removeAllViews();
 
-        TextView close = Ui.text(activity, "✕", palette.sp(15f), palette.onSurfaceVariant,
-                Typeface.NORMAL);
-        close.setGravity(Gravity.CENTER);
-        close.setBackground(Ui.rounded(activity, palette.surfaceContainerHigh, 20f));
-        close.setPadding(Ui.dp(activity, 10), Ui.dp(activity, 8),
-                Ui.dp(activity, 10), Ui.dp(activity, 8));
-        close.setOnClickListener(v -> {
-            Selection.exit();
-            detach();
-        });
-        addChip(close, 4);
+        addIconButton(palette, "close", palette.onSurfaceVariant, T.s("退出多选", "Exit selection"),
+                () -> {
+                    Selection.exit();
+                    detach();
+                });
 
         TextView count = Ui.text(activity,
                 T.f("已选 %d 项", "%d selected", Selection.size()),
-                palette.sp(13f), palette.onSurface, Typeface.NORMAL);
-        count.setPadding(Ui.dp(activity, 10), 0, Ui.dp(activity, 10), 0);
-        addChip(count, 2);
-        count.setOnClickListener(null);
+                palette.sp(14f), palette.onSurface, Typeface.NORMAL);
+        count.setPadding(Ui.dp(activity, 8), 0, Ui.dp(activity, 6), 0);
+        addView(count, 4);
 
         switch (Selection.mode()) {
             case Selection.PROVIDERS:
-                chip(palette, T.s("启用", "Enable"), () -> run("启用提供商",
-                        ids -> T.f("已启用 %d 个提供商", "Enabled %d providers",
-                                Actions.setProvidersEnabled(ids, true))));
-                chip(palette, T.s("停用", "Disable"), () -> run("停用提供商",
-                        ids -> T.f("已停用 %d 个提供商", "Disabled %d providers",
-                                Actions.setProvidersEnabled(ids, false))));
-                chip(palette, T.s("删除", "Delete"), () -> confirmDeleteProviders());
+                addIconButton(palette, "check", palette.onSurfaceVariant,
+                        T.s("启用", "Enable"), () -> run("启用提供商",
+                                ids -> T.f("已启用 %d 个提供商", "Enabled %d providers",
+                                        Actions.setProvidersEnabled(ids, true))));
+                addIconButton(palette, "block", palette.onSurfaceVariant,
+                        T.s("停用", "Disable"), () -> run("停用提供商",
+                                ids -> T.f("已停用 %d 个提供商", "Disabled %d providers",
+                                        Actions.setProvidersEnabled(ids, false))));
+                addIconButton(palette, "delete", palette.error, T.s("删除", "Delete"),
+                        () -> confirmDeleteProviders());
                 break;
             case Selection.ASSISTANTS:
-                chip(palette, T.s("设为当前", "Make current"), () -> makeCurrent());
-                chip(palette, T.s("克隆", "Clone"), () -> run("克隆助手",
-                        ids -> T.f("已克隆 %d 个助手", "Cloned %d assistants",
-                                Actions.cloneAssistants(ids))));
-                chip(palette, T.s("删除", "Delete"), () -> confirmDeleteAssistants());
+                addIconButton(palette, "check", palette.onSurfaceVariant,
+                        T.s("设为当前", "Make current"), () -> makeCurrent());
+                addIconButton(palette, "copy", palette.onSurfaceVariant,
+                        T.s("克隆", "Clone"), () -> run("克隆助手",
+                                ids -> T.f("已克隆 %d 个助手", "Cloned %d assistants",
+                                        Actions.cloneAssistants(ids))));
+                addIconButton(palette, "delete", palette.error, T.s("删除", "Delete"),
+                        () -> confirmDeleteAssistants());
                 break;
             default:
-                chip(palette, T.s("置顶", "Pin"), () -> run("置顶对话",
-                        ids -> T.f("已置顶 %d 个对话", "Pinned %d chats",
-                                Actions.pin(ids, true))));
-                chip(palette, T.s("取消置顶", "Unpin"), () -> run("取消置顶",
-                        ids -> T.f("已取消置顶 %d 个对话", "Unpinned %d chats",
-                                Actions.pin(ids, false))));
-                chip(palette, T.s("移助手", "Move"), () -> pickAssistant());
-                chip(palette, T.s("移文件夹", "Folder"), () -> pickFolder());
-                chip(palette, T.s("重生成标题", "Retitle"), () -> run("重新生成标题",
-                        ids -> T.f("已请求重新生成 %d 个标题", "Requested %d title refreshes",
-                                Actions.regenerateTitles(ids))));
-                chip(palette, T.s("删除", "Delete"), () -> confirmDeleteConversations());
+                addIconButton(palette, "check", palette.onSurfaceVariant,
+                        T.s("置顶", "Pin"), () -> run("置顶对话",
+                                ids -> T.f("已置顶 %d 个对话", "Pinned %d chats",
+                                        Actions.pin(ids, true))));
+                addIconButton(palette, "unpin", palette.onSurfaceVariant,
+                        T.s("取消置顶", "Unpin"), () -> run("取消置顶",
+                                ids -> T.f("已取消置顶 %d 个对话", "Unpinned %d chats",
+                                        Actions.pin(ids, false))));
+                addIconButton(palette, "forward", palette.onSurfaceVariant,
+                        T.s("移动到其他助手", "Move to assistant"), () -> pickAssistant());
+                addIconButton(palette, "folder", palette.onSurfaceVariant,
+                        T.s("移动到文件夹", "Move to folder"), () -> pickFolder());
+                addIconButton(palette, "refresh", palette.onSurfaceVariant,
+                        T.s("重新生成标题", "Regenerate title"), () -> run("重新生成标题",
+                                ids -> T.f("已请求重新生成 %d 个标题", "Requested %d title refreshes",
+                                        Actions.regenerateTitles(ids))));
+                addIconButton(palette, "delete", palette.error, T.s("删除", "Delete"),
+                        () -> confirmDeleteConversations());
                 break;
         }
     }
 
-    private static void addChip(TextView view, float marginDp) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.leftMargin = Ui.dp(activity, marginDp);
-        params.rightMargin = Ui.dp(activity, marginDp);
-        content.addView(view, params);
-    }
-
-    private static void chip(Palette palette, CharSequence label, Runnable action) {
-        TextView view = Ui.text(activity, label, palette.sp(13f), palette.onSecondaryContainer,
-                Typeface.NORMAL);
-        view.setGravity(Gravity.CENTER);
-        view.setPadding(Ui.dp(activity, 12), Ui.dp(activity, 8),
-                Ui.dp(activity, 12), Ui.dp(activity, 8));
-        view.setBackground(Ui.rounded(activity, palette.secondaryContainer, 18f));
-        view.setClickable(true);
-        view.setFocusable(true);
+    private static void addIconButton(Palette palette, String glyph, int tint,
+                                     CharSequence label, Runnable action) {
+        IconView view = new IconView(activity, glyph, tint);
+        view.setContentDescription(label);
+        view.setBackground(Ui.rounded(activity, Ui.alpha(palette.onSurface, 0.08f), 20f));
         view.setOnClickListener(v -> {
             if (!busy) {
                 action.run();
             }
         });
-        addChip(view, 3);
+        view.setOnLongClickListener(v -> {
+            ToastHelper.show(activity, label.toString());
+            return true;
+        });
+        addView(view, 0);
     }
 
-    /** 进入多选前先把旧的那条收掉（重复点「多选」时不会叠两条）。 */
+    private static void addView(View view, float marginDp) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                view instanceof IconView ? Ui.dp(activity, 40) : ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (view instanceof IconView) {
+            params.height = Ui.dp(activity, 40);
+        }
+        params.leftMargin = Ui.dp(activity, marginDp);
+        params.rightMargin = Ui.dp(activity, marginDp);
+        content.addView(view, params);
+    }
+
     static void hideIfIdle() {
         if (Selection.mode() == Selection.NONE) {
             detach();
@@ -212,6 +233,35 @@ final class SelectionBar {
         }
         bar = null;
         content = null;
+    }
+
+    // ---------------------------------------------------------------- 图标按钮
+
+    private static final class IconView extends View {
+
+        private final String glyph;
+        private final int tint;
+
+        IconView(Context context, String glyph, int tint) {
+            super(context);
+            this.glyph = glyph;
+            this.tint = tint;
+            setClickable(true);
+            setFocusable(true);
+            int inset = Ui.dp(context, 9);
+            setPadding(inset, inset, inset, inset);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            int width = getWidth() - getPaddingLeft() - getPaddingRight();
+            int height = getHeight() - getPaddingTop() - getPaddingBottom();
+            canvas.save();
+            canvas.translate(getPaddingLeft(), getPaddingTop());
+            Glyph.draw(canvas, glyph, width, height, tint);
+            canvas.restore();
+        }
     }
 
     // ---------------------------------------------------------------- 动作
@@ -260,7 +310,6 @@ final class SelectionBar {
                 ToastHelper.error(activity, t);
                 return;
             }
-            // 第一个是「移出助手」之外的普通选择：直接列全部助手
             final String[] names = new String[assistants.size()];
             for (int i = 0; i < names.length; i++) {
                 names[i] = assistants.get(i).name;
@@ -409,5 +458,4 @@ final class SelectionBar {
                         }))
                 .show();
     }
-
 }

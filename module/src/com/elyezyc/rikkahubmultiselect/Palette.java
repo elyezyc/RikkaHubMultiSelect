@@ -192,6 +192,7 @@ final class Palette {
         }
         if (dark && amoled) {
             surface = 0xFF000000;
+            surfaceHigh = 0xFF0A0A0A;
         }
         Palette palette = new Palette(dark, fontScale, surface, surfaceHigh, onSurface,
                 onSurfaceVariant, outlineVariant, primary, onPrimary, primaryContainer,
@@ -316,6 +317,7 @@ final class Palette {
                 dark ? DARK_ON_ERROR_CONTAINER : LIGHT_ON_ERROR_CONTAINER);
         if (dark && amoled) {
             surface = 0xFF000000;
+            surfaceHigh = 0xFF0A0A0A;
         }
         Palette palette = new Palette(dark, fontScale, surface, surfaceHigh, onSurface,
                 onSurfaceVariant, outlineVariant, primary, onPrimary, primaryContainer,

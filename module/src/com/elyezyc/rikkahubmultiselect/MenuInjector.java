@@ -561,7 +561,9 @@ final class MenuInjector {
                         if (target != NONE) {
                             pendingTarget = target;
                             pendingAt = now;
-                            pendingDismiss = param.args[1];
+                            if (function0.isInstance(param.args[1])) {
+                                pendingDismiss = param.args[1];
+                            }
                             armedTarget = NONE;
                         }
                     } catch (Throwable t) {
@@ -589,6 +591,11 @@ final class MenuInjector {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
                         injectedForPending = false;
+                        // 菜单内容组合时把 onDismissRequest 记住，点「多选」以后用它关菜单
+                        if (param.args != null && param.args.length > 2
+                                && function0.isInstance(param.args[2])) {
+                            pendingDismiss = param.args[2];
+                        }
                     }
                 });
             } catch (Throwable t) {
