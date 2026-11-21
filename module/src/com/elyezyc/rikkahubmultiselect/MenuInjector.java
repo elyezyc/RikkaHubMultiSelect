@@ -86,6 +86,8 @@ final class MenuInjector {
     private static volatile long dismissAt;
     /** 刚注入的那个菜单里，宿主自己那一项的点击回调（它会把菜单的展开状态设回 false）。 */
     private static volatile Object hostItemClick;
+    /** 当前菜单的内容 lambda（里面也捕获了展开状态）。 */
+    private static volatile Object contentLambda;
     private static volatile boolean injectedForPending;
     private static volatile boolean injectedOnce;
 
@@ -654,10 +656,13 @@ final class MenuInjector {
                         // 菜单内容组合时把 onDismissRequest 记住，点「多选」以后用它关菜单
                         if (param.args != null) {
                             for (int i = 1; i < param.args.length; i++) {
-                                if (function0.isInstance(param.args[i])) {
+                                if (function0.isInstance(param.args[i])
+                                        && pendingDismiss != param.args[i]) {
                                     pendingDismiss = param.args[i];
                                     dismissAt = System.currentTimeMillis();
-                                    break;
+                                }
+                                if (lambdaImpl.isInstance(param.args[i])) {
+                                    contentLambda = param.args[i];
                                 }
                             }
                         }
@@ -987,13 +992,22 @@ final class MenuInjector {
                             XLog.e("关闭宿主菜单失败", t);
                         }
                         // 2) 直接找到宿主菜单的展开状态，设回 false（宿主自己点菜单项就是干这个）
-                        if (!closed) {
-                            closed = flipMenuState(hostItemClick);
-                        }
+                        closed = flipMenuState(hostItemClick) || closed;
+                        closed = flipMenuState(contentLambda) || closed;
+                        closed = flipMenuState(dismiss) || closed;
                         // 3) 都不行就发返回键
                         if (!closed) {
                             backLater(activity);
                         }
+                        // 4) 250ms 后再补一次（有些菜单的组合状态要晚一帧才稳定）
+                        final boolean allowRetry = true;
+                        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                flipMenuState(hostItemClick);
+                                flipMenuState(contentLambda);
+                            }
+                        }, 250L);
                         new Handler(Looper.getMainLooper()).post(new Runnable() {
                             @Override
                             public void run() {
@@ -1017,6 +1031,18 @@ final class MenuInjector {
     /** 在给定对象的字段里找 Compose 的 MutableState&lt;Boolean&gt;，把它设成 false。 */
     private static boolean flipMenuState(Object holder) {
         if (holder == null || mutableState == null || stateSet == null || stateGet == null) {
+            return false;
+        }
+        if (flipFields(holder)) {
+            return true;
+        }
+        // ComposableLambdaImpl 捕获的东西在 _block 里
+        Object block = Reflect.get(Reflect.field(holder.getClass(), "_block"), holder);
+        return block != null && flipFields(block);
+    }
+
+    private static boolean flipFields(Object holder) {
+        if (holder == null) {
             return false;
         }
         for (Class<?> type = holder.getClass(); type != null && type != Object.class;

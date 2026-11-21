@@ -166,7 +166,7 @@ final class SelectionBar {
                         () -> confirmDeleteAssistants());
                 break;
             default:
-                addIconButton(palette, "check", palette.onSurfaceVariant,
+                addIconButton(palette, "pin", palette.onSurfaceVariant,
                         T.s("置顶", "Pin"), () -> run("置顶对话",
                                 ids -> T.f("已置顶 %d 个对话", "Pinned %d chats",
                                         Actions.pin(ids, true))));

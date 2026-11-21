@@ -35,6 +35,13 @@ final class Selection {
     private static final android.os.Handler MAIN = new android.os.Handler(
             android.os.Looper.getMainLooper());
 
+    private static final java.util.concurrent.ExecutorService WORKER =
+            java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "RikkaHubMultiSelect");
+                thread.setDaemon(true);
+                return thread;
+            });
+
     /** 多选期间盯着当前页面，离开对应的列表就自动收起。 */
     private static final Runnable WATCHER = new Runnable() {
         @Override
@@ -120,15 +127,41 @@ final class Selection {
     }
 
     private static void bump() {
-        if (tick == null || tickSet == null) {
-            return;
+        if (tick != null && tickSet != null) {
+            try {
+                tickSet.invoke(tick, System.nanoTime());
+            } catch (Throwable t) {
+                XLog.e("刷新列表失败", t);
+            }
         }
-        try {
-            tickSet.invoke(tick, System.nanoTime());
-        } catch (Throwable t) {
-            XLog.e("刷新列表失败", t);
+        // 光靠上面那个 State 不一定能让宿主列表重组（读发生在 composable 外面），
+        // 再轻推一下宿主的设置流：它一变，读设置的整个列表都会重组。合并 250ms 内的多次操作。
+        if (!nudgeScheduled) {
+            nudgeScheduled = true;
+            MAIN.postDelayed(NUDGE, 250L);
         }
     }
+
+    private static volatile boolean nudgeScheduled;
+
+    private static final Runnable NUDGE = new Runnable() {
+        @Override
+        public void run() {
+            nudgeScheduled = false;
+            WORKER.execute(() -> {
+                try {
+                    SettingsApi.update(new Host.Transform() {
+                        @Override
+                        public Object apply(Object settings) {
+                            return settings;
+                        }
+                    });
+                } catch (Throwable t) {
+                    XLog.e("刷新宿主列表失败", t);
+                }
+            });
+        }
+    };
 
     static int mode() {
         return mode;
