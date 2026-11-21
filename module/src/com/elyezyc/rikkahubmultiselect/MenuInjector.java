@@ -56,13 +56,27 @@ final class MenuInjector {
     private static Object selectIcon;
 
     private static boolean resolved;
-    private static boolean broken;
+    private static boolean classicBroken;
+    private static boolean expressiveBroken;
 
-    private static final ThreadLocal<Integer> ITEM = new ThreadLocal<>();
+    /** 当前正在组合的列表项：类型 + 这一行的 id（进多选时顺手把它选上）。 */
+    private static final class ItemRef {
+        final int type;
+        final String id;
+
+        ItemRef(int type, String id) {
+            this.type = type;
+            this.id = id;
+        }
+    }
+
+    private static final ThreadLocal<ItemRef> ITEM = new ThreadLocal<>();
 
     private static volatile int armedTarget = NONE;
+    private static volatile String armedId;
     private static volatile long armedAt;
     private static volatile int pendingTarget = NONE;
+    private static volatile String pendingId;
     private static volatile long pendingAt;
     private static volatile Object pendingDismiss;
     private static volatile boolean injectedForPending;
@@ -74,7 +88,7 @@ final class MenuInjector {
     }
 
     static boolean available() {
-        return resolved && !broken;
+        return resolved && !classicBroken;
     }
 
     // ---------------------------------------------------------------- 安装
@@ -312,11 +326,11 @@ final class MenuInjector {
             XposedBridge.hookMethod(method, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    ITEM.set(Selection.CONVERSATIONS);
                     try {
                         Selection.observe();
                         Object conversation = param.args[0];
                         String id = String.valueOf(Reflect.property(conversation, "id"));
+                        ITEM.set(new ItemRef(Selection.CONVERSATIONS, id));
                         // 0 会话，1 删除，2 重新生成标题，3 置顶，4 移助手，5 移文件夹
                         Selection.putRow(id, new Object[]{
                                 conversation, param.args[4], param.args[5], param.args[6],
@@ -353,13 +367,13 @@ final class MenuInjector {
             XposedBridge.hookMethod(method, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    ITEM.set(Selection.PROVIDERS);
                     try {
                         Selection.observe();
+                        String id = SettingsApi.providerId(param.args[0]);
+                        ITEM.set(new ItemRef(Selection.PROVIDERS, id));
                         if (!Selection.active(Selection.PROVIDERS)) {
                             return;
                         }
-                        String id = SettingsApi.providerId(param.args[0]);
                         param.args[1] = dim(param.args[1], Selection.contains(id));
                         param.args[2] = wrapFunction0(param.args[2], id, Selection.PROVIDERS);
                     } catch (Throwable t) {
@@ -389,13 +403,13 @@ final class MenuInjector {
             XposedBridge.hookMethod(method, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    ITEM.set(Selection.ASSISTANTS);
                     try {
                         Selection.observe();
+                        String id = SettingsApi.assistantId(param.args[0]);
+                        ITEM.set(new ItemRef(Selection.ASSISTANTS, id));
                         if (!Selection.active(Selection.ASSISTANTS)) {
                             return;
                         }
-                        String id = SettingsApi.assistantId(param.args[0]);
                         param.args[2] = dim(param.args[2], Selection.contains(id));
                         param.args[4] = wrapFunction0(param.args[4], id, Selection.ASSISTANTS);
                     } catch (Throwable t) {
@@ -459,7 +473,7 @@ final class MenuInjector {
                     protected void beforeHookedMethod(MethodHookParam param) {
                         try {
                             Object original = param.args[candidateIndex];
-                            Integer item = ITEM.get();
+                            ItemRef item = ITEM.get();
                             if (item != null && original != null) {
                                 param.args[candidateIndex] = wrapArm(original, item);
                             }
@@ -474,7 +488,7 @@ final class MenuInjector {
         }
     }
 
-    private static Object wrapArm(final Object original, final int target) {
+    private static Object wrapArm(final Object original, final ItemRef item) {
         return Proxy.newProxyInstance(function0.getClassLoader(), new Class<?>[]{function0},
                 new java.lang.reflect.InvocationHandler() {
                     @Override
@@ -482,7 +496,7 @@ final class MenuInjector {
                         if (!"invoke".equals(method.getName())) {
                             return fallback(proxy, method, args);
                         }
-                        arm(target);
+                        arm(item.type, item.id);
                         Method call = function0.getMethod("invoke");
                         call.setAccessible(true);
                         return call.invoke(original);
@@ -536,10 +550,23 @@ final class MenuInjector {
                 });
     }
 
-    private static void arm(int target) {
+    private static void arm(int target, String id) {
         armedTarget = target;
+        armedId = id;
         armedAt = System.currentTimeMillis();
         injectedForPending = false;
+        XLog.i("点开" + tabName(target) + "菜单" + (id == null ? "" : "（" + id + "）"));
+    }
+
+    private static String tabName(int target) {
+        switch (target) {
+            case Selection.PROVIDERS:
+                return T.s("提供商", "provider");
+            case Selection.ASSISTANTS:
+                return T.s("助手", "assistant");
+            default:
+                return T.s("对话", "conversation");
+        }
     }
 
     private static void hookPopup() {
@@ -560,11 +587,13 @@ final class MenuInjector {
                         }
                         if (target != NONE) {
                             pendingTarget = target;
+                            pendingId = armedId;
                             pendingAt = now;
                             if (function0.isInstance(param.args[1])) {
                                 pendingDismiss = param.args[1];
                             }
                             armedTarget = NONE;
+                            armedId = null;
                         }
                     } catch (Throwable t) {
                         XLog.e("识别菜单失败", t);
@@ -632,8 +661,13 @@ final class MenuInjector {
                             injectExpressive(param);
                         }
                     } catch (Throwable t) {
-                        broken = true;
-                        XLog.e("注入菜单项失败，后续不再尝试（重启 RikkaHub 后重试）", t);
+                        if (classic) {
+                            classicBroken = true;
+                        } else {
+                            expressiveBroken = true;
+                        }
+                        XLog.e("注入菜单项失败（" + (classic ? "经典" : "expressive")
+                                + "重载，后续不再尝试）", t);
                     }
                 }
             });
@@ -643,10 +677,14 @@ final class MenuInjector {
     }
 
     private static boolean consumePending() {
-        if (broken || Boolean.TRUE.equals(REENTRANT.get()) || injectedForPending) {
+        if (Boolean.TRUE.equals(REENTRANT.get())) {
             return false;
         }
         long now = System.currentTimeMillis();
+        // 同一个菜单里只插一次；但不要因为某次没重置标记就把后面所有菜单都挡掉
+        if (injectedForPending && now - pendingAt < 700) {
+            return false;
+        }
         if (pendingTarget == NONE) {
             int target = NONE;
             if (armedTarget != NONE && now - armedAt <= ARM_TTL_MS) {
@@ -658,8 +696,10 @@ final class MenuInjector {
                 return false;
             }
             pendingTarget = target;
+            pendingId = armedId;
             pendingAt = now;
             armedTarget = NONE;
+            armedId = null;
         }
         if (now - pendingAt > ARM_TTL_MS) {
             pendingTarget = NONE;
@@ -669,7 +709,10 @@ final class MenuInjector {
     }
 
     private static void injectClassic(XC_MethodHook.MethodHookParam param) throws Throwable {
-        if (!consumePending()) {
+        if (classicBroken) {
+            return;
+        }
+        if (!consumePending() && !consumeByMenuContent(param.args[0])) {
             return;
         }
         injectedForPending = true;
@@ -704,7 +747,10 @@ final class MenuInjector {
     }
 
     private static void injectExpressive(XC_MethodHook.MethodHookParam param) throws Throwable {
-        if (!consumePending()) {
+        if (expressiveBroken) {
+            return;
+        }
+        if (!consumePending() && !consumeByMenuContent(param.args[1])) {
             return;
         }
         injectedForPending = true;
@@ -736,6 +782,32 @@ final class MenuInjector {
             REENTRANT.set(null);
         }
         markInjected();
+    }
+
+    /**
+     * 兜底：这次点的菜单项来自 {@code ItemActionMenu}（提供商 / 助手列表用的就是它），
+     * 而当前页面正好是提供商或助手页，那就认定是这个列表的菜单。
+     */
+    private static boolean consumeByMenuContent(Object textLambda) {
+        if (textLambda == null) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (injectedForPending && now - pendingAt < 700) {
+            return false;
+        }
+        if (!textLambda.getClass().getName().contains("ItemActionMenuKt")) {
+            return false;
+        }
+        int target = screenTarget();
+        if (target == NONE) {
+            return false;
+        }
+        pendingTarget = target;
+        pendingId = null;
+        pendingAt = System.currentTimeMillis();
+        XLog.i("按菜单内容识别到" + tabName(target) + "菜单");
+        return true;
     }
 
     private static void markInjected() {
@@ -848,7 +920,9 @@ final class MenuInjector {
                         }
                         final Activity activity = Host.currentActivity();
                         final Object dismiss = pendingDismiss;
+                        final String preselected = pendingId;
                         pendingTarget = NONE;
+                        pendingId = null;
                         pendingDismiss = null;
                         if (activity == null) {
                             XLog.i("点了多选，但拿不到 Activity");
@@ -869,6 +943,9 @@ final class MenuInjector {
                                 try {
                                     SelectionBar.hideIfIdle();
                                     Selection.enter(target);
+                                    if (preselected != null) {
+                                        Selection.toggle(preselected);
+                                    }
                                     SelectionBar.show(activity);
                                 } catch (Throwable t) {
                                     XLog.e("进入多选失败", t);
