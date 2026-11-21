@@ -116,12 +116,12 @@ final class M3Dialog {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
 
-        ScrollView scroller = new ScrollView(activity);
+        final ScrollView scroller = new ScrollView(activity);
         scroller.setVerticalScrollBarEnabled(false);
         scroller.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         listParams.topMargin = Ui.dp(activity, 8);
         root.addView(scroller, listParams);
 
@@ -135,12 +135,19 @@ final class M3Dialog {
         root.addView(actions, actionParams);
 
         show(activity, dialog, root);
-        Window window = dialog.getWindow();
-        if (window != null) {
-            DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
-            window.setLayout(Math.min((int) (metrics.widthPixels * 0.9f), Ui.dp(activity, 460)),
-                    Math.min((int) (metrics.heightPixels * 0.7f), Ui.dp(activity, 560)));
-        }
+        // 选项多的时候给列表一个上限，超过就滚动；少了就让对话框自然收缩
+        scroller.post(new Runnable() {
+            @Override
+            public void run() {
+                DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+                int max = Math.min((int) (metrics.heightPixels * 0.55f), Ui.dp(activity, 420));
+                if (list.getHeight() > max) {
+                    ViewGroup.LayoutParams params = scroller.getLayoutParams();
+                    params.height = max;
+                    scroller.setLayoutParams(params);
+                }
+            }
+        });
     }
 
     // ---------------------------------------------------------------- 内部
