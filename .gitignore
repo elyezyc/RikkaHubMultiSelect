@@ -1,0 +1,33 @@
+# 构建产物：APK 只发 Releases，不进仓库
+/dist/
+*.apk
+*.idsig
+
+# 第三方二进制：由 tools/fetch_toolchain.sh 下载
+/tools/*.jar
+/tools/jdk-*/
+/tools/jdk*.tar.gz
+/tools/android-sdk/
+/tools/android-sdk
+/tools/*.zip
+
+# 构建中间产物
+/.work/
+
+# 开发记录：只在本地留档，不进仓库
+/DevelopmentLog/
+
+# 宿主 APK：体积大，按 README 自己下载
+/rikkahub-*.apk
+
+# ===== 私密材料，一律不上传 =====
+# Key/ 里有签名密钥库和口令
+/Key/
+*.jks
+*.keystore
+
+# 编辑器 / 系统垃圾
+.idea/
+*.iml
+.vscode/
+.DS_Store

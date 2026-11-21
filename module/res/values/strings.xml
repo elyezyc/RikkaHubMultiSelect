@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RikkaHubMultiSelect / SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources>
+    <string name="app_name">RikkaHubMultiSelect</string>
+    <string name="xposed_description">给 RikkaHub 加上对话、提供商、助手的多选批量操作</string>
+
+    <string name="main_body">版本 %1$s
+
+作用
+RikkaHub 自己的列表只能一条一条操作。本模块在 RikkaHub 界面右侧放一个可拖动的小按钮，
+点开是一张多选面板，可以一次处理多条：
+
+对话
+  置顶 / 取消置顶 / 移到其他助手 / 删除
+
+提供商
+  启用 / 禁用 / 删除（内置条目在 RikkaHub 的规整逻辑里会被写回，所以只允许启用、禁用）
+
+助手
+  删除（和 RikkaHub 自己删助手一样，会连带清理该助手下的对话与记忆文件）
+
+使用方法
+1. 推荐用 Vector（github.com/JingMatrix/Vector）加载本模块：需要 Magisk 或 KernelSU + Zygisk，
+   刷入系统模块后重启。
+2. 从系统通知进入 Vector 管理界面，在模块列表里启用 RikkaHubMultiSelect。
+3. 作用域勾选 RikkaHub，包名 me.rerere.rikkahub。
+4. 强制停止 RikkaHub，再重新打开。
+5. 进入聊天页后，屏幕右侧会有一个“多选”按钮，拖动可以换位置，点一下打开面板。
+
+怎么确认生效
+- 点开多选面板，能看到你的对话、提供商、助手列表。
+- Vector 日志页过滤 RikkaHubMultiSelect，能看到注入和每次批量操作的结果。
+
+说明
+- 模块通过反射调用 RikkaHub 自己的数据层（ConversationRepository、SettingsStore、Room），
+  不做数据库直写，也不会改动宿主的安装包。
+- 删除类操作不可撤销，确认框会显示将影响多少条。
+- 面板按钮位置记在 RikkaHub 的应用数据里，卸载 RikkaHub 会一起清掉。
+- 模块按类名 / 方法名挂钩，对照 RikkaHub 3.3.0 的源码；宿主大改版后可能失效，
+  失效时只在日志里报错，不影响宿主本身。
+- 本项目以 GPL-3.0-or-later 发布。
+</string>
+
+    <string-array name="xposed_scope">
+        <item>me.rerere.rikkahub</item>
+    </string-array>
+</resources>
