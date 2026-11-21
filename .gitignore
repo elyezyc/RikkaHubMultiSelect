@@ -6,6 +6,7 @@
 # 第三方二进制：由 tools/fetch_toolchain.sh 下载
 /tools/*.jar
 /tools/jdk-*/
+/tools/jdk-*
 /tools/jdk*.tar.gz
 /tools/android-sdk/
 /tools/android-sdk

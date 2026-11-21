@@ -55,6 +55,21 @@ def manifest(apk):
         return archive.read("AndroidManifest.xml").decode("utf-16-le", "replace")
 
 
+def keystore_secrets():
+    """从本地 Key/keystore.properties 读口令；仓库里不放这文件，没读到时返回空。"""
+    props = os.path.join(ROOT, "Key", "keystore.properties")
+    if not os.path.isfile(props):
+        return []
+    secrets = []
+    with open(props, encoding="utf-8") as handle:
+        for line in handle:
+            if "=" in line:
+                value = line.split("=", 1)[1].strip()
+                if len(value) >= 8:
+                    secrets.append(value)
+    return secrets
+
+
 def main():
     apk = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         ROOT, "dist", "RikkaHubMultiSelect-1.0.0.apk")
@@ -98,8 +113,13 @@ def main():
             with open(dex, "wb") as handle:
                 handle.write(archive.read("classes.dex"))
         raw = open(dex, "rb").read()
-        check(b"<redacted>" not in raw, "dex 里没有签名口令")
         check(b"rikkahubmultiselect-key.jks" not in raw, "dex 里没有密钥库路径")
+        secrets = keystore_secrets()
+        if secrets:
+            for index, secret in enumerate(secrets):
+                check(secret.encode() not in raw, "dex 里没有签名口令 #%d" % (index + 1))
+        else:
+            print("skip  dex 里没有签名口令（没有 Key/keystore.properties，跳过）")
 
     print()
     if failures:
