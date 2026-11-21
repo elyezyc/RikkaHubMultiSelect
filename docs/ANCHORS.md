@@ -46,6 +46,25 @@
 | `RoomDatabase#getOpenHelper` / `runInTransaction` | androidx.room | 走宿主的数据库连接和事务 |
 | `SupportSQLiteDatabase#query` / `#execSQL`、`SupportSQLiteOpenHelper#getWritableDatabase` | androidx.sqlite | 同上 |
 
+## 菜单注入
+
+「多选」要出现在 RikkaHub 自己的长按菜单 / 右侧三点菜单里。R8 把 `ItemActionMenu`、`ConversationListKt`
+这类封装整个内联掉了，没有能改「动作列表」的入口，所以只能借 Compose 菜单本身：
+
+| 挂钩点 | 宿主源码 | 用途 |
+| --- | --- | --- |
+| `MenuKt.DropdownMenuPopup` | androidx.compose.material3 | 菜单打开时调用一次；从调用栈认出这是哪个列表的菜单，同时记下 `onDismissRequest` |
+| `MenuKt.DropdownMenuItem` | 同上 | 菜单第一项开始组合时，先用宿主自己的这个函数多画一项「多选」（形状、颜色、内边距、文字样式都复用那一项的） |
+| `TextKt#Text-(String…)` | 同上 | 在注入的项里画「多选」两个字；名字带混淆后缀，按 `Text-` 前缀 + 20 个形参找 |
+| `ComposableLambdaImpl#<init>(int, boolean, Object)` | androidx.compose.runtime | 文字要包成 Compose 的 lambda |
+| `kotlin.Unit.INSTANCE` | kotlin-stdlib | 上面的 lambda 返回值 |
+| `ChatListKt.ConversationItem` | [`ChatDrawer.kt`](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ChatDrawer.kt) / [`ConversationList.kt`](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ConversationList.kt) | 长按菜单的来源（R8 把这两个文件合进了 `ChatListKt`） |
+| `SettingProviderPageKt.ProviderItem` | [`SettingProviderPage.kt`](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingProviderPage.kt) | 提供商三点菜单的来源 |
+| `AssistantPageKt.AssistantItem` | [`AssistantPage.kt`](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/ui/pages/assistant/AssistantPage.kt) | 助手三点菜单的来源 |
+
+这些签名在模块启动时逐项校验（参数类型也要对得上），任何一项对不上就整体关掉菜单注入，
+退回右侧的悬浮按钮，不会让宿主在组合过程中崩掉。
+
 ## 配色
 
 | 挂钩点 | 宿主源码 | 用途 |
@@ -81,6 +100,9 @@ R8 把 getter 全内联掉了，所以按字段名读（`surface`、`primary`、
 | `ConversationRepository.updatePinStatus` / `updateConversationAssistant` | 被内联后删除 | 直接用一列 `UPDATE` |
 | `PresetThemeKt.findThemeById` | 删除 | 从 `getPresetThemes()` 列表里按 id 找 |
 | `ConversationDAO` 接口 | 接口类被删，只剩实现类 | 走 Room 的 `SupportSQLiteDatabase` |
+| `ItemActionMenuKt` / `ItemAction` | 内联进调用方后删除 | 直接挂 `MenuKt.DropdownMenuItem` 加一项 |
+| `ConversationListKt` / `ChatDrawerKt` | 被合并进 `ChatListKt` | 按 `ChatListKt.ConversationItem` 认栈帧 |
+| `ClickableKt` | 类被删（只剩 `CombinedClickableNode` 等） | 不走点击修饰符这条路 |
 
 另外不少挂起函数的续体形参从 `kotlin.coroutines.Continuation` 被收窄成了
 `kotlin.coroutines.jvm.internal.ContinuationImpl`，传普通 `Continuation` 会被反射拒收，

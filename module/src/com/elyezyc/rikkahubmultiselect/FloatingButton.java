@@ -54,6 +54,27 @@ final class FloatingButton {
         });
     }
 
+    /** 菜单注入生效后把兜底按钮收掉。 */
+    static void detach(final Activity activity) {
+        if (activity == null || activity.isFinishing()) {
+            return;
+        }
+        View decor = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+        if (!(decor instanceof ViewGroup)) {
+            return;
+        }
+        final ViewGroup root = (ViewGroup) decor;
+        root.post(new Runnable() {
+            @Override
+            public void run() {
+                View view = root.findViewWithTag(TAG);
+                if (view != null) {
+                    root.removeView(view);
+                }
+            }
+        });
+    }
+
     private static void install(Activity activity, ViewGroup root) {
         if (root.findViewWithTag(TAG) != null) {
             return;

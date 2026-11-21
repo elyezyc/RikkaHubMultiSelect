@@ -77,10 +77,11 @@ final class MultiSelectDialog {
     private TextView selectAllLabel;
     private LinearLayout actionBar;
 
-    private MultiSelectDialog(Activity activity) {
+    private MultiSelectDialog(Activity activity, int initialTab) {
         this.activity = activity;
         this.dialog = new Dialog(activity);
         this.palette = Palette.resolve(activity);
+        this.tab = initialTab;
         this.worker = Executors.newSingleThreadExecutor(runnable -> {
             Thread thread = new Thread(runnable, "RikkaHubMultiSelect");
             thread.setDaemon(true);
@@ -89,13 +90,17 @@ final class MultiSelectDialog {
     }
 
     static void show(final Activity activity) {
+        show(activity, TAB_CONVERSATIONS);
+    }
+
+    static void show(final Activity activity, int tab) {
         if (activity == null || activity.isFinishing()) {
             return;
         }
         if (current != null) {
             current.close();
         }
-        MultiSelectDialog dialog = new MultiSelectDialog(activity);
+        MultiSelectDialog dialog = new MultiSelectDialog(activity, tab);
         current = dialog;
         dialog.open();
     }

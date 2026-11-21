@@ -9,6 +9,8 @@ package com.elyezyc.rikkahubmultiselect;
 import android.app.Activity;
 import android.os.Bundle;
 
+import java.lang.ref.WeakReference;
+
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -34,6 +36,7 @@ final class Host {
 
     private static volatile Object settingsStore;
     private static volatile Object conversationRepo;
+    private static volatile WeakReference<Activity> currentActivity;
 
     private static Class<?> settingsStoreClass;
     private static Class<?> repositoryClass;
@@ -73,6 +76,7 @@ final class Host {
         function0Class = Reflect.load(classLoader, "kotlin.jvm.functions.Function0");
         function1Class = Reflect.load(classLoader, "kotlin.jvm.functions.Function1");
         Conversations.init(classLoader);
+        MenuInjector.install(classLoader);
 
         capture(settingsStoreClass, "SettingsStore", new Sink() {
             @Override
@@ -120,6 +124,12 @@ final class Host {
     }
 
     // ---------------------------------------------------------------- 单例
+
+    /** 当前前台的主界面 Activity（菜单项点击时用）。 */
+    static Activity currentActivity() {
+        WeakReference<Activity> reference = currentActivity;
+        return reference == null ? null : reference.get();
+    }
 
     static Object settingsStore() {
         Object store = settingsStore;
@@ -269,8 +279,14 @@ final class Host {
                         if (!(param.thisObject instanceof Activity)) {
                             return;
                         }
+                        Activity activity = (Activity) param.thisObject;
+                        currentActivity = new WeakReference<>(activity);
+                        // 菜单注入生效之前先挂一个悬浮按钮兜底，注入成功后它会自己收起来
+                        if (MenuInjector.hasInjected()) {
+                            return;
+                        }
                         try {
-                            FloatingButton.attach((Activity) param.thisObject);
+                            FloatingButton.attach(activity);
                         } catch (Throwable t) {
                             XLog.e("挂载多选按钮失败", t);
                         }
@@ -288,7 +304,11 @@ final class Host {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
                         if (param.thisObject instanceof Activity) {
-                            MultiSelectDialog.dismissFor((Activity) param.thisObject);
+                            Activity activity = (Activity) param.thisObject;
+                            if (currentActivity != null && currentActivity.get() == activity) {
+                                currentActivity = null;
+                            }
+                            MultiSelectDialog.dismissFor(activity);
                         }
                     }
                 });

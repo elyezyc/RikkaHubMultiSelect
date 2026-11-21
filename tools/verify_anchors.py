@@ -125,6 +125,20 @@ REQUIRED = [
      ("Ljava/lang/String;",)),
     ("CustomTheme#generateColorScheme", "Lme/rerere/rikkahub/ui/theme/CustomTheme;", "method",
      "generateColorScheme", ("(Z)Landroidx/compose/material3/ColorScheme;",)),
+    ("MenuKt#DropdownMenuPopup", "Landroidx/compose/material3/MenuKt;", "method",
+     "DropdownMenuPopup", ("ComposableLambdaImpl;", "Lkotlin/jvm/functions/Function0;")),
+    ("MenuKt#DropdownMenuItem", "Landroidx/compose/material3/MenuKt;", "method",
+     "DropdownMenuItem", ("ComposableLambdaImpl;", "Lkotlin/jvm/functions/Function2;", "GapComposer;")),
+    ("ComposableLambdaImpl#<init>", "Landroidx/compose/runtime/internal/ComposableLambdaImpl;",
+     "method", "<init>", ("(IZLjava/lang/Object;)V",)),
+    ("ChatListKt#ConversationItem", "Lme/rerere/rikkahub/ui/pages/chat/ChatListKt;", "method",
+     "ConversationItem", ("Lme/rerere/rikkahub/data/model/Conversation;",)),
+    ("SettingProviderPageKt#ProviderItem", "Lme/rerere/rikkahub/ui/pages/setting/SettingProviderPageKt;",
+     "method", "ProviderItem", ("Lme/rerere/ai/provider/ProviderSetting;",)),
+    ("AssistantPageKt#AssistantItem", "Lme/rerere/rikkahub/ui/pages/assistant/AssistantPageKt;",
+     "method", "AssistantItem", ("Lme/rerere/rikkahub/data/model/Assistant;",)),
+    ("kotlin.Unit.INSTANCE", "Lkotlin/Unit;", "field", "INSTANCE", ("Lkotlin/Unit;",)),
+
     ("PresetTheme.standardLight", "Lme/rerere/rikkahub/ui/theme/PresetTheme;", "field",
      "standardLight", ("ColorScheme;",)),
     ("ColorScheme.surface", "Landroidx/compose/material3/ColorScheme;", "field", "surface", ("J",)),
@@ -179,6 +193,31 @@ REQUIRED = [
 ]
 
 
+# 名字带混淆后缀的成员：按前缀 + 形参个数核对
+PREFIX_REQUIRED = [
+    ("TextKt#Text-(String)", "Landroidx/compose/material3/TextKt;", 20),
+]
+
+
+def _split_params(descriptor):
+    """把 (Ljava/lang/String;IJZ) 这种描述符拆成形参列表。"""
+    body = descriptor[1:descriptor.index(")")]
+    params = []
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char == "L":
+            end = body.index(";", index)
+            params.append(body[index:end + 1])
+            index = end + 1
+        elif char == "[":
+            index += 1
+        else:
+            params.append(char)
+            index += 1
+    return params
+
+
 def main():
     apk = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("HOST_APK", DEFAULT_APK)
     if not os.path.isfile(apk):
@@ -228,11 +267,25 @@ def main():
         if not ok:
             failures.append(label)
 
+    for label, desc, param_count in PREFIX_REQUIRED:
+        members = classes.get(desc)
+        ok = False
+        if members is not None:
+            for member_name, member_type in members["method"]:
+                if member_name.startswith("Text-") and member_type.startswith("(Ljava/lang/String;") \
+                        and member_type.count(";") + member_type.count("[") >= 0 \
+                        and len(_split_params(member_type)) == param_count:
+                    ok = True
+                    break
+        print(("ok    " if ok else "FAIL  ") + label)
+        if not ok:
+            failures.append(label)
+
     print()
     print("宿主：%s" % apk)
     if failures:
         raise SystemExit("锚点缺失 %d 项" % len(failures))
-    print("锚点全部存在（%d 项）" % len(REQUIRED))
+    print("锚点全部存在（%d 项）" % (len(REQUIRED) + len(PREFIX_REQUIRED)))
 
 
 if __name__ == "__main__":
