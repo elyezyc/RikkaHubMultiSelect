@@ -88,10 +88,13 @@ RikkaHub 自己的列表都是单条操作：删会话要一条条长按，改�
 
 - **内置提供商删不掉**。RikkaHub 每次读盘、每次写设置都会跑一遍
   [规整](https://github.com/rikkahub/rikkahub/blob/3.3.0/app/src/main/java/me/rerere/rikkahub/data/datastore/SettingsNormalization.kt)，
-  把缺掉的 `DEFAULT_PROVIDERS` 补回列表。所以面板只给内置条目提供启用/停用；删了也会自己长回来。
-  如果你另外装了会清 `builtIn` 标记的模块，删除就能生效。
+  把缺掉的 `DEFAULT_PROVIDERS` 补回列表。所以这里只给内置条目提供启用/停用；删了也会自己长回来。
+
+  想真的删掉自带提供商，装配套模块
+  [RikkaHubNoSPON](https://github.com/elyezyc/RikkaHubNoSPON)：它会在规整之后把补回来的条目丢掉、
+  把 `builtIn` 清成 `false`。两个模块一起用时，本模块的「删除」对内置条目就生效了。
 - 菜单注入依赖 Compose 内部实现（`DropdownMenuPopup` / `DropdownMenuItem` / `ComposableLambdaImpl`）。
-  签名在启动时会逐项校验，对不上就整体关掉、退回悬浮按钮，不会把宿主带崩。宿主大改版后可能要重新适配。
+  签名在启动时会逐项校验，对不上就整体关掉、不往菜单里加项，不会把宿主带崩。宿主大改版后可能要重新适配。
 - 删除操作不可撤销。
 - 这个版本没在真机上跑过。`./verify.sh` 里的三项校验（86 个锚点对照宿主发布包、
   21 项 JVM 单测、产物检查）都过了，但设备上的实际表现——比如 ART 对续体恢复、

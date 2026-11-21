@@ -15,7 +15,8 @@ Conversations
 
 Providers
   Enable / disable / delete (built-in ones are re-added by RikkaHub\'s own normalisation,
-  so they can only be enabled or disabled)
+  so they can only be enabled or disabled; use RikkaHubNoSPON if you really need to delete
+  them: github.com/elyezyc/RikkaHubNoSPON)
 
 Assistants
   Delete (same as RikkaHub itself: their conversations and memory files are cleaned up too)

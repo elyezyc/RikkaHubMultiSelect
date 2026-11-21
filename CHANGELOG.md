@@ -85,8 +85,10 @@
 
 ### 已知限制
 
-- **内置提供商删不掉**：RikkaHub 每次规整设置都会把缺掉的 `DEFAULT_PROVIDERS` 补回来。
-  面板只给内置条目提供启用 / 停用；若另外装了清 `builtIn` 标记的模块，删除就能生效。
+- **内置提供商删不掉**：RikkaHub 每次规整设置都会把缺掉的 `DEFAULT_PROVIDERS` 补回来，
+  所以这里只给内置条目提供启用 / 停用。想真的删掉，配合
+  [RikkaHubNoSPON](https://github.com/elyezyc/RikkaHubNoSPON) 使用——它会在规整后丢掉补回来的条目、
+  把 `builtIn` 清成 `false`，两个模块一起用时本模块的删除就生效。
 - 删除操作不可撤销。
 - 菜单注入依赖 Compose 内部实现（`CardKt.DropdownMenuItem`、`DropdownMenuPopup`、
   `ComposableLambdaImpl` 等），签名在启动时逐项校验，对不上就整体关掉，不会在组合过程中崩宿主；

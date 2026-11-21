@@ -14,7 +14,8 @@ RikkaHub 自己的列表只能一条一条操作。本模块在 RikkaHub 界面�
   置顶 / 取消置顶 / 移到其他助手 / 删除
 
 提供商
-  启用 / 禁用 / 删除（内置条目在 RikkaHub 的规整逻辑里会被写回，所以只允许启用、禁用）
+  启用 / 禁用 / 删除（内置条目在 RikkaHub 的规整逻辑里会被写回，所以只允许启用、禁用；
+  想真正删掉自带提供商，配合 RikkaHubNoSPON 使用：github.com/elyezyc/RikkaHubNoSPON）
 
 助手
   删除（和 RikkaHub 自己删助手一样，会连带清理该助手下的对话与记忆文件）
