@@ -43,6 +43,9 @@ final class MenuInjector {
     private static Class<?> textKt;
     private static Class<?> menuItemColors;
     private static Class<?> iconKt;
+    private static Class<?> mutableState;
+    private static Method stateGet;
+    private static Method stateSet;
     private static Method classicItem;
     private static Method expressiveItem;
     private static Method textMethod;
@@ -81,6 +84,8 @@ final class MenuInjector {
     private static volatile long pendingAt;
     private static volatile Object pendingDismiss;
     private static volatile long dismissAt;
+    /** 刚注入的那个菜单里，宿主自己那一项的点击回调（它会把菜单的展开状态设回 false）。 */
+    private static volatile Object hostItemClick;
     private static volatile boolean injectedForPending;
     private static volatile boolean injectedOnce;
 
@@ -106,6 +111,16 @@ final class MenuInjector {
             menuItemColors = Class.forName("androidx.compose.material3.MenuItemColors",
                     false, loader);
             iconKt = Class.forName("androidx.compose.material3.IconKt", false, loader);
+            mutableState = Reflect.load(loader, "androidx.compose.runtime.MutableState");
+            Class<?> state = Reflect.load(loader, "androidx.compose.runtime.State");
+            if (mutableState != null) {
+                stateSet = mutableState.getMethod("setValue", Object.class);
+                stateSet.setAccessible(true);
+            }
+            if (state != null) {
+                stateGet = state.getMethod("getValue");
+                stateGet.setAccessible(true);
+            }
             Class<?> unit = Class.forName("kotlin.Unit", false, loader);
 
             unitInstance = Reflect.get(Reflect.field(unit, "INSTANCE"), null);
@@ -445,14 +460,21 @@ final class MenuInjector {
     }
 
     private static Object dim(Object modifier, boolean selected) {
-        if (selected || alphaMethod == null) {
+        if (selected) {
+            return modifier;
+        }
+        if (alphaMethod == null) {
             return modifier;
         }
         try {
-            return alphaMethod.invoke(null, modifier, 0.45f);
+            Object dimmed = alphaMethod.invoke(null, modifier, 0.45f);
+            if (dimmed != null) {
+                return dimmed;
+            }
         } catch (Throwable t) {
-            return modifier;
+            XLog.e("压暗未选中的行失败", t);
         }
+        return modifier;
     }
 
     // ---------------------------------------------------------------- 点击 -> 选中
@@ -731,6 +753,7 @@ final class MenuInjector {
         }
         injectedForPending = true;
         Object[] args = param.args;
+        hostItemClick = args[1];
         final boolean[] iconDrawn = new boolean[1];
         Object text = buildTextLambda(false, iconDrawn);
         Object click = buildClickLambda(pendingTarget);
@@ -770,6 +793,7 @@ final class MenuInjector {
         }
         injectedForPending = true;
         Object[] args = param.args;
+        hostItemClick = args[1];
         final boolean[] iconDrawn = new boolean[1];
         Object text = buildTextLambda(true, iconDrawn);
         Object click = buildClickLambda(pendingTarget);
@@ -949,7 +973,7 @@ final class MenuInjector {
                             return null;
                         }
                         boolean closed = false;
-                        // 只信刚刚捕获到的那份 onDismissRequest，太旧的当作没抓到
+                        // 1) 刚刚捕获到的 onDismissRequest
                         boolean fresh = dismiss != null
                                 && System.currentTimeMillis() - dismissAt < 3000L;
                         try {
@@ -962,6 +986,11 @@ final class MenuInjector {
                         } catch (Throwable t) {
                             XLog.e("关闭宿主菜单失败", t);
                         }
+                        // 2) 直接找到宿主菜单的展开状态，设回 false（宿主自己点菜单项就是干这个）
+                        if (!closed) {
+                            closed = flipMenuState(hostItemClick);
+                        }
+                        // 3) 都不行就发返回键
                         if (!closed) {
                             backLater(activity);
                         }
@@ -983,6 +1012,34 @@ final class MenuInjector {
                         return null;
                     }
                 });
+    }
+
+    /** 在给定对象的字段里找 Compose 的 MutableState&lt;Boolean&gt;，把它设成 false。 */
+    private static boolean flipMenuState(Object holder) {
+        if (holder == null || mutableState == null || stateSet == null || stateGet == null) {
+            return false;
+        }
+        for (Class<?> type = holder.getClass(); type != null && type != Object.class;
+             type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(holder);
+                    if (value == null || !mutableState.isInstance(value)) {
+                        continue;
+                    }
+                    Object current = stateGet.invoke(value);
+                    if (current instanceof Boolean && (Boolean) current) {
+                        stateSet.invoke(value, Boolean.FALSE);
+                        XLog.i("已把宿主菜单的展开状态设回 false");
+                        return true;
+                    }
+                } catch (Throwable ignored) {
+                    // 继续看下一个字段
+                }
+            }
+        }
+        return false;
     }
 
     /** 拿不到 onDismissRequest 时的兜底：让 Compose 的 Popup 自己走一次返回，把它关掉。 */
