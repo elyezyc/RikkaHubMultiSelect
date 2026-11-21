@@ -80,6 +80,7 @@ final class MenuInjector {
     private static volatile String pendingId;
     private static volatile long pendingAt;
     private static volatile Object pendingDismiss;
+    private static volatile long dismissAt;
     private static volatile boolean injectedForPending;
     private static volatile boolean injectedOnce;
 
@@ -597,6 +598,7 @@ final class MenuInjector {
                             pendingAt = now;
                             if (function0.isInstance(param.args[1])) {
                                 pendingDismiss = param.args[1];
+                                dismissAt = now;
                             }
                             armedTarget = NONE;
                             armedId = null;
@@ -632,6 +634,7 @@ final class MenuInjector {
                             for (int i = 1; i < param.args.length; i++) {
                                 if (function0.isInstance(param.args[i])) {
                                     pendingDismiss = param.args[i];
+                                    dismissAt = System.currentTimeMillis();
                                     break;
                                 }
                             }
@@ -946,8 +949,11 @@ final class MenuInjector {
                             return null;
                         }
                         boolean closed = false;
+                        // 只信刚刚捕获到的那份 onDismissRequest，太旧的当作没抓到
+                        boolean fresh = dismiss != null
+                                && System.currentTimeMillis() - dismissAt < 3000L;
                         try {
-                            if (dismiss != null) {
+                            if (fresh) {
                                 Method call = function0.getMethod("invoke");
                                 call.setAccessible(true);
                                 call.invoke(dismiss);
