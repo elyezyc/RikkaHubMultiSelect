@@ -59,6 +59,8 @@
 | `MenuKt.DropdownMenuContent` | 同上 | 菜单内容每组合一次就重置「本轮已插入」标记，重组合时结构不会错位 |
 | `MenuItemColors#<init>` | 同上 | 给注入项配一套和其它项一致的文字颜色 |
 | `TextKt#Text-(String…)` | 同上 | 在注入的项里画「多选」两个字；名字带混淆后缀，按 `Text-` 前缀 + 20 个形参找 |
+| `IconKt#Icon-(ImageVector…)` | 同上 | 给「多选」这一项画图标 |
+| `HugeIcons.getCheckList` / `getTick01` | `me.rerere.hugeicons` | 菜单图标用的 ImageVector（R8 把图标 getter 合并进了别的类，按候选类名找） |
 | `ComposableLambdaImpl#<init>(int, boolean, Object)` | androidx.compose.runtime | 文字要包成 Compose 的 lambda |
 | `kotlin.Unit.INSTANCE` | kotlin-stdlib | 上面的 lambda 返回值 |
 | `CombinedClickableElement#<init>` | androidx.compose.foundation | 包一层长按回调：在会话行上长按时记下「这次是对话菜单」 |
@@ -69,6 +71,20 @@
 
 这些签名在模块启动时逐项校验（参数类型也要对得上），任何一项对不上就整体关掉菜单注入，
 退回右侧的悬浮按钮，不会让宿主在组合过程中崩掉。
+
+## 在列表里选中
+
+| 挂钩点 | 用途 |
+| --- | --- |
+| `Updater#mutableStateOf$default` | 造一个 Compose 的 `MutableState`，改它触发列表重组 |
+| `State#getValue` / `MutableState#setValue` | 行组合时读它登记依赖；切换选中时写它 |
+| `Modifier$Companion.$$INSTANCE` | `Icon` 需要的空 Modifier |
+| `contrast.Contrast#alpha(Modifier, float)` | 未选中的提供商 / 助手行压暗（R8 合并后的类名） |
+| `ChatListKt#ConversationItem` 的 `selected` 参数 | 会话行直接复用宿主自己的选中底色 |
+| `ProviderItem` / `AssistantItem` 的点击参数 | 选中模式下把「打开详情」换成「切换选中」 |
+
+底部那条操作栏是模块自己画的 Android View，形状和宿主选消息时的悬浮工具栏一致；
+选中动作本身都发生在宿主列表里。
 
 ## 配色
 
