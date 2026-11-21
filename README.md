@@ -7,6 +7,7 @@ RikkaHub 的 Xposed 模块。给会话、提供商、助手列表加上多选，
 - 模块 API：Xposed 82
 - 许可证：GPL-3.0-or-later
 - 安装包：[Releases](https://github.com/elyezyc/RikkaHubMultiSelect/releases)
+- 更新日志：[CHANGELOG.md](CHANGELOG.md)
 
 ## 它解决什么
 
